@@ -1,0 +1,48 @@
+# Core web framework
+streamlit>=1.28.0
+
+# PDF processing with Docling
+docling>=2.0.0
+
+# HTTP requests for API calls
+requests>=2.31.0
+
+# Data manipulation and export
+pandas>=2.0.0
+numpy>=1.24.0
+openpyxl>=3.1.0
+
+# Image processing
+Pillow>=9.5.0
+
+# Web searching (optional but recommended)
+duckduckgo-search>=3.8.0
+
+# Google GenAI SDK for Gemini with web search
+google-genai>=0.2.0
+
+# JSON handling and validation
+jsonschema>=4.17.0
+
+# Logging and utilities
+python-dateutil>=2.8.0
+pathlib-mate>=1.0.0
+
+# Type hints for better development
+typing-extensions>=4.5.0
+
+# Progress bars and UI enhancements
+tqdm>=4.65.0
+rich>=13.0.0
+
+# Development dependencies (optional)
+# pytest>=7.0.0
+# black>=23.0.0
+# flake8>=6.0.0
+
+# Additional dependencies for enhanced features
+# For Excel export functionality
+xlsxwriter>=3.0.0
+
+# For concurrent processing
+# concurrent.futures (built-in Python 3.2+)
