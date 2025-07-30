@@ -490,7 +490,8 @@ Summary:"""
             return "Failed to generate summary from search results."
     
     def create_enhanced_json(self, original_json_path: str, analysis_results: List[Dict], 
-                            output_dir: str, output_filename: str = None) -> str:
+                            output_dir: str, output_filename: str = None, 
+                            batch_mode: bool = False) -> str:
         """
         Create enhanced JSON with AI analysis results
         
@@ -499,6 +500,7 @@ Summary:"""
             analysis_results (List[Dict]): Image analysis results
             output_dir (str): Output directory
             output_filename (str): Optional custom filename (if None, derive from original)
+            batch_mode (bool): If True, use simplified naming for batch processing
             
         Returns:
             str: Path to enhanced JSON file
@@ -518,8 +520,11 @@ Summary:"""
                 if base_name.endswith('_step1_docling'):
                     base_name = base_name[:-14]  # Remove '_step1_docling'
             
-            # Generate enhanced JSON path with step2 suffix
-            enhanced_json_path = os.path.join(output_dir, f"{base_name}_step2_enhanced.json")
+            # Generate enhanced JSON path with appropriate suffix
+            if batch_mode:
+                enhanced_json_path = os.path.join(output_dir, f"{base_name}_enhanced.json")
+            else:
+                enhanced_json_path = os.path.join(output_dir, f"{base_name}_step2_enhanced.json")
             
             self.logger.info(f"📊 Creating enhanced JSON: {Path(enhanced_json_path).name}")
             
@@ -568,7 +573,8 @@ Summary:"""
             self.logger.error(f"Failed to create enhanced JSON: {e}")
             raise
 
-    def create_nlp_ready_version(self, enhanced_json_path: str, output_dir: str, output_filename: str = None) -> str:
+    def create_nlp_ready_version(self, enhanced_json_path: str, output_dir: str, 
+                                output_filename: str = None, batch_mode: bool = False) -> str:
         """
         Create NLP-ready JSON by removing image data and keeping only text descriptions
         
@@ -576,6 +582,7 @@ Summary:"""
             enhanced_json_path (str): Path to enhanced JSON file
             output_dir (str): Output directory
             output_filename (str): Optional custom filename (if None, derive from enhanced)
+            batch_mode (bool): If True, use simplified naming for batch processing
             
         Returns:
             str: Path to NLP-ready JSON file
@@ -590,13 +597,18 @@ Summary:"""
             if output_filename:
                 base_name = output_filename
             else:
-                # Extract base name from enhanced file, removing step2 suffix if present
+                # Extract base name from enhanced file, removing suffix if present
                 base_name = enhanced_path_obj.stem
                 if base_name.endswith('_step2_enhanced'):
                     base_name = base_name[:-15]  # Remove '_step2_enhanced'
+                elif base_name.endswith('_enhanced'):
+                    base_name = base_name[:-9]  # Remove '_enhanced'
             
-            # Generate NLP-ready JSON path with step3 suffix
-            nlp_ready_path = os.path.join(output_dir, f"{base_name}_step3_nlp_ready.json")
+            # Generate NLP-ready JSON path with appropriate suffix
+            if batch_mode:
+                nlp_ready_path = os.path.join(output_dir, f"{base_name}_nlp_ready.json")
+            else:
+                nlp_ready_path = os.path.join(output_dir, f"{base_name}_step3_nlp_ready.json")
             
             self.logger.info(f"📝 Creating NLP-ready JSON: {Path(nlp_ready_path).name}")
             

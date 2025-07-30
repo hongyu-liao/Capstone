@@ -876,23 +876,17 @@ def process_batch_files(file_type, file_list, base_output_dir, config):
             file_path = file_info['path']
             file_name = file_info['name']
             
-            # Create individual output directory for this file
-            safe_filename = "".join(c for c in Path(file_name).stem if c.isalnum() or c in (' ', '-', '_')).rstrip()
-            individual_output_dir = os.path.join(base_output_dir, safe_filename)
-            os.makedirs(individual_output_dir, exist_ok=True)
-            
             overall_status.text(f"Processing file {i+1}/{total_files}: {file_name}")
             
             # Create expandable section for this file's processing
             with st.expander(f"📄 Processing: {file_name}", expanded=True):
                 try:
                     result = process_single_file_batch(
-                        file_type, file_path, file_name, individual_output_dir, config
+                        file_type, file_path, file_name, base_output_dir, config
                     )
                     
                     if result:
                         result['file_index'] = i + 1
-                        result['individual_output_dir'] = individual_output_dir
                         batch_results.append(result)
                         st.success(f"✅ Completed: {file_name}")
                     else:
@@ -944,6 +938,9 @@ def process_single_file_batch(file_type, file_path, file_name, output_dir, confi
         progress_bar = st.progress(0)
         status_text = st.empty()
         
+        # Get base filename (without extension)
+        original_name = Path(file_name).stem
+        
         # Initialize processors
         if file_type == "pdf":
             pdf_processor = PDFProcessor(config)
@@ -953,13 +950,23 @@ def process_single_file_batch(file_type, file_path, file_name, output_dir, confi
             status_text.text("Step 1/4: Converting PDF to JSON...")
             progress_bar.progress(25)
             
-            json_result = pdf_processor.convert_pdf_to_json(file_path, output_dir, None)
+            # Use original filename for JSON output (without _step1_docling suffix)
+            json_result = pdf_processor.convert_pdf_to_json(file_path, output_dir, original_name)
             
             if not json_result:
                 return None
             
-            json_path = json_result['json_path']
-            base_filename = json_result['base_filename']
+            # Rename the generated JSON file to match original PDF name exactly
+            generated_json_path = json_result['json_path']
+            target_json_path = os.path.join(output_dir, f"{original_name}.json")
+            
+            # Move the file if names are different
+            if generated_json_path != target_json_path:
+                import shutil
+                shutil.move(generated_json_path, target_json_path)
+            
+            json_path = target_json_path
+            base_filename = original_name
             
         else:  # JSON file
             json_path = file_path
@@ -970,6 +977,17 @@ def process_single_file_batch(file_type, file_path, file_name, output_dir, confi
             base_filename = json_path_obj.stem
             if base_filename.endswith('_step1_docling'):
                 base_filename = base_filename[:-14]
+            elif base_filename.endswith('_step2_enhanced'):
+                base_filename = base_filename[:-15]
+            elif base_filename.endswith('_step3_nlp_ready'):
+                base_filename = base_filename[:-16]
+            
+            # For batch processing, copy JSON to output directory with clean name
+            target_json_path = os.path.join(output_dir, f"{base_filename}.json")
+            if json_path != target_json_path:
+                import shutil
+                shutil.copy2(json_path, target_json_path)
+                json_path = target_json_path
             
             status_text.text("Step 1/4: Loading JSON file...")
             progress_bar.progress(25)
@@ -1010,7 +1028,8 @@ def process_single_file_batch(file_type, file_path, file_name, output_dir, confi
             json_path, 
             analysis_results, 
             output_dir, 
-            base_filename
+            base_filename,
+            batch_mode=True  # Use simplified naming for batch processing
         )
         
         # Step 4: Optional NLP-ready version
@@ -1022,7 +1041,8 @@ def process_single_file_batch(file_type, file_path, file_name, output_dir, confi
             nlp_ready_path = image_analyzer.create_nlp_ready_version(
                 enhanced_json_path, 
                 output_dir, 
-                base_filename
+                base_filename,
+                batch_mode=True  # Use simplified naming for batch processing
             )
         
         progress_bar.progress(100)
@@ -1762,12 +1782,12 @@ def generate_batch_html_reports(successful_results):
                         analysis_results = result['analysis_results']
                         original_json = result['original_json']
                         
-                        # Generate reports
+                        # Generate reports with batch mode naming
                         image_report = generator.generate_image_analysis_report(
-                            analysis_results, base_filename, output_dir
+                            analysis_results, base_filename, output_dir, batch_mode=True
                         )
                         complete_report = generator.generate_complete_evaluation_report(
-                            original_json, analysis_results, base_filename, output_dir
+                            original_json, analysis_results, base_filename, output_dir, batch_mode=True
                         )
                         
                         generated_reports.append({
@@ -1812,12 +1832,12 @@ def generate_single_html_reports(result):
             analysis_results = result['analysis_results']
             original_json = result['original_json']
             
-            # Generate reports
+            # Generate reports with batch mode naming
             image_report = generator.generate_image_analysis_report(
-                analysis_results, base_filename, output_dir
+                analysis_results, base_filename, output_dir, batch_mode=True
             )
             complete_report = generator.generate_complete_evaluation_report(
-                original_json, analysis_results, base_filename, output_dir
+                original_json, analysis_results, base_filename, output_dir, batch_mode=True
             )
             
             st.success("✅ HTML reports generated!")

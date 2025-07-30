@@ -29,7 +29,8 @@ class HTMLReportGenerator:
         self.logger = logging.getLogger(__name__)
         
     def generate_image_analysis_report(self, analysis_results: List[Dict], 
-                                     base_filename: str, output_dir: str) -> str:
+                                     base_filename: str, output_dir: str,
+                                     batch_mode: bool = False) -> str:
         """
         Generate HTML report showing all image analysis results
         
@@ -37,13 +38,17 @@ class HTMLReportGenerator:
             analysis_results (List[Dict]): Image analysis results
             base_filename (str): Base filename for output
             output_dir (str): Output directory
+            batch_mode (bool): If True, use simplified naming for batch processing
             
         Returns:
             str: Path to generated HTML file
         """
         try:
-            # Generate output path
-            html_path = Path(output_dir) / f"{base_filename}_step2_image_analysis_report.html"
+            # Generate output path with appropriate naming
+            if batch_mode:
+                html_path = Path(output_dir) / f"{base_filename}_report.html"
+            else:
+                html_path = Path(output_dir) / f"{base_filename}_step2_image_analysis_report.html"
             
             self.logger.info(f"📊 Generating image analysis HTML report: {html_path.name}")
             
@@ -63,7 +68,8 @@ class HTMLReportGenerator:
     
     def generate_complete_evaluation_report(self, original_json_path: str, 
                                           analysis_results: List[Dict],
-                                          base_filename: str, output_dir: str) -> str:
+                                          base_filename: str, output_dir: str,
+                                          batch_mode: bool = False) -> str:
         """
         Generate complete HTML evaluation report combining text extraction and image analysis
         
@@ -72,13 +78,17 @@ class HTMLReportGenerator:
             analysis_results (List[Dict]): Image analysis results  
             base_filename (str): Base filename for output
             output_dir (str): Output directory
+            batch_mode (bool): If True, use simplified naming for batch processing
             
         Returns:
             str: Path to generated HTML file
         """
         try:
-            # Generate output path
-            html_path = Path(output_dir) / f"{base_filename}_complete_evaluation_report.html"
+            # Generate output path with appropriate naming
+            if batch_mode:
+                html_path = Path(output_dir) / f"{base_filename}_complete_report.html"
+            else:
+                html_path = Path(output_dir) / f"{base_filename}_complete_evaluation_report.html"
             
             self.logger.info(f"📋 Generating complete evaluation HTML report: {html_path.name}")
             
