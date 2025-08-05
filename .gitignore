@@ -3,3 +3,16 @@ hf_token.txt
 # AI-generated documentation (auto-generated, not version controlled)
 PROJECT_FUNCTIONS_DOCUMENTATION.md
 AI_START_HERE_READ_PROJECT_FUNCTIONS_DOCUMENTATION_MD_FIRST.txt
+
+# Image files
+chart_recognition_result.png
+Flowchart of the Project.png
+flowchart.png
+line_chart.png
+
+# Analysis scripts
+Line_Chart_Extract.py
+
+# Review files
+Review.rar
+Review/

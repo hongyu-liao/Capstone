@@ -1,55 +1,11 @@
 @echo off
-title PDF Image Analyzer Launcher
+setlocal
 
-echo ===============================================
-echo   PDF Image Analyzer - Windows Launcher
-echo ===============================================
-echo.
+REM Change to the directory of the script
+cd /d "%~dp0"
 
-:: Check if Python is available
-python --version >nul 2>&1
-if errorlevel 1 (
-    echo ❌ Error: Python is not installed or not in PATH
-    echo 💡 Please install Python 3.8+ and add it to PATH
-    echo 🔗 Download from: https://python.org/downloads/
-    pause
-    exit /b 1
-)
+REM Activate the Conda environment and run Streamlit
+call conda activate torch260
+streamlit run app.py
 
-echo ✅ Python is available
-echo.
-
-:: Check if we're in the right directory
-if not exist "app.py" (
-    echo ❌ Error: app.py not found
-    echo 💡 Please ensure you're running this from the PDF_Analyzer_App directory
-    pause
-    exit /b 1
-)
-
-echo ✅ Application files found
-echo.
-
-:: Try to install/update dependencies
-echo 📦 Installing/updating dependencies...
-pip install -r requirements.txt
-if errorlevel 1 (
-    echo ⚠️  Warning: Some dependencies may not have installed correctly
-    echo 💡 You can continue, but the app might not work properly
-    echo.
-)
-
-echo.
-echo 🚀 Starting PDF Image Analyzer...
-echo 📱 The web interface will open in your browser
-echo 🔗 URL: http://localhost:8501
-echo.
-echo ⏹️  To stop the application, close this window or press Ctrl+C
-echo.
-
-:: Start the application
-python run_app.py
-
-echo.
-echo 👋 Application closed
-pause
+endlocal

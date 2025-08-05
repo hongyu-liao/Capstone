@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  pdf-analyzer:
+    build: .
+    container_name: pdf-image-analyzer
+    volumes:
+      # Mount your PDF input directory here
+      - ./input:/app/input
+      # Mount your output directory here  
+      - ./output:/app/output
+    environment:
+      - PYTHONUNBUFFERED=1
+      # Uncomment and set if you want to use specific GPU
+      # - CUDA_VISIBLE_DEVICES=0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    # Uncomment to run interactively for debugging
+    # stdin_open: true
+    # tty: true
+    # command: /bin/bash

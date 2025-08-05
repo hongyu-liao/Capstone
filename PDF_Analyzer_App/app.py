@@ -104,7 +104,11 @@ def configure_sidebar():
             placeholder="Enter model name from LM Studio",
             key="model_name"
         )
-        st.session_state.api_key = ""  # No API key needed for local
+        # No API key needed for local LM Studio
+        # Create hidden API key field to maintain session state consistency
+        api_key = st.sidebar.text_input("API Key", value="", type="password", 
+                                       key="api_key", disabled=True, 
+                                       help="Not required for local LM Studio")
         
     elif ai_provider == "OpenAI (ChatGPT)":
         models = ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo", "🔧 Custom Model"]
@@ -114,7 +118,6 @@ def configure_sidebar():
             model_name = st.sidebar.text_input("Custom Model Name", key="model_name")
         else:
             model_name = selected_model
-            st.session_state.model_name = model_name
         
         api_key = st.sidebar.text_input("OpenAI API Key", type="password", key="api_key")
         
@@ -127,7 +130,6 @@ def configure_sidebar():
             model_name = st.sidebar.text_input("Custom Model Name", key="model_name")
         else:
             model_name = selected_model
-            st.session_state.model_name = model_name
         
         api_key = st.sidebar.text_input("Google AI API Key", type="password", key="api_key")
         
@@ -140,7 +142,6 @@ def configure_sidebar():
             model_name = st.sidebar.text_input("Custom Model Name", key="model_name")
         else:
             model_name = selected_model
-            st.session_state.model_name = model_name
         
         api_key = st.sidebar.text_input("Anthropic API Key", type="password", key="api_key")
     
@@ -405,7 +406,6 @@ def display_sidebar():
     
     # Advanced options
     with st.sidebar.expander("🎛️ Advanced Options"):
-        batch_processing = st.checkbox("Batch Processing Mode", help="Process multiple files at once")
         save_intermediate = st.checkbox("Save Intermediate Results", value=True, help="Keep intermediate processing files")
         parallel_processing = st.checkbox("Parallel Image Analysis", help="Analyze multiple images simultaneously")
         
@@ -417,7 +417,6 @@ def display_sidebar():
         'enable_web_search': enable_web_search,
         'generate_nlp_ready': generate_nlp_ready,
         'max_tokens': max_tokens,
-        'batch_processing': batch_processing,
         'save_intermediate': save_intermediate,
         'parallel_processing': parallel_processing
     }
@@ -501,73 +500,11 @@ def get_model_information(provider: str, model_name: str) -> dict:
     return model_database.get(provider, {}).get(model_name, {})
 
 def upload_files_section():
-    """Handle file upload section with single and batch processing options"""
+    """Handle file upload section"""
     st.subheader("📁 File Upload")
-    
-    # Processing mode selection
-    processing_mode = st.radio(
-        "🔄 Processing Mode",
-        ["Single File", "Batch Processing"],
-        help="Choose single file for individual processing or batch for multiple files"
-    )
-    
-    if processing_mode == "Single File":
-        return upload_single_file()
-    else:
-        return upload_multiple_files()
-
-def upload_single_file():
-    """Handle single file upload"""
-    st.info("📄 Upload a single PDF file or JSON file for processing")
     
     # File type selection
     file_type_option = st.radio("Select file type:", ["PDF", "JSON"])
-    
-    if file_type_option == "PDF":
-        file_type = "pdf"
-        uploaded_file = st.file_uploader(
-            "Choose a PDF file",
-            type=['pdf'],
-            accept_multiple_files=False,
-            help="Upload a PDF file to extract text and analyze images"
-        )
-        
-        if uploaded_file is not None:
-            # Create temporary file
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
-                tmp_file.write(uploaded_file.read())
-                temp_pdf_path = tmp_file.name
-            
-            st.success(f"✅ PDF uploaded: {uploaded_file.name}")
-            st.info(f"📊 File size: {uploaded_file.size / 1024 / 1024:.2f} MB")
-            return file_type, temp_pdf_path, uploaded_file.name
-    
-    else:  # JSON
-        file_type = "json"
-        uploaded_file = st.file_uploader(
-            "Choose a JSON file",
-            type=['json'],
-            accept_multiple_files=False,
-            help="Upload a JSON file from previous Docling conversion"
-        )
-        
-        if uploaded_file is not None:
-            # Create temporary file
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.json', mode='w+b') as tmp_file:
-                tmp_file.write(uploaded_file.read())
-                temp_json_path = tmp_file.name
-            
-            st.success(f"✅ JSON uploaded: {uploaded_file.name}")
-            return file_type, temp_json_path, uploaded_file.name
-    
-    return None, None, None
-
-def upload_multiple_files():
-    """Handle multiple file upload for batch processing"""
-    st.info("📚 Upload multiple PDF or JSON files for batch processing")
-    
-    # File type selection
-    file_type_option = st.radio("Select file type:", ["PDF", "JSON"], key="batch_file_type")
     
     if file_type_option == "PDF":
         file_type = "pdf"
@@ -575,267 +512,93 @@ def upload_multiple_files():
             "Choose PDF files",
             type=['pdf'],
             accept_multiple_files=True,
-            help="Upload multiple PDF files to process in batch"
+            help="Upload one or more PDF files to process. You can upload a single file or multiple files for batch processing."
         )
     else:  # JSON
         file_type = "json"
         uploaded_files = st.file_uploader(
-            "Choose JSON files", 
+            "Choose JSON files",
             type=['json'],
             accept_multiple_files=True,
-            help="Upload multiple JSON files from previous Docling conversions"
+            help="Upload one or more JSON files from previous Docling conversion"
         )
     
-    if uploaded_files is not None and len(uploaded_files) > 0:
-        st.success(f"✅ {len(uploaded_files)} files uploaded")
+    if uploaded_files:
+        # Handle both single and multiple files uniformly
+        if not isinstance(uploaded_files, list):
+            uploaded_files = [uploaded_files]
         
-        # Show file list
-        with st.expander("📋 Uploaded Files", expanded=True):
-            total_size = 0
-            file_info = []
-            
-            for i, uploaded_file in enumerate(uploaded_files, 1):
-                file_size_mb = uploaded_file.size / 1024 / 1024
-                total_size += file_size_mb
-                file_info.append({
-                    'name': uploaded_file.name,
-                    'size_mb': file_size_mb,
-                    'file_obj': uploaded_file
-                })
-                
-                st.write(f"**{i}.** {uploaded_file.name} ({file_size_mb:.2f} MB)")
-            
-            st.info(f"📊 Total size: {total_size:.2f} MB")
+        # Create temporary files
+        file_list = []
+        total_size = 0
         
-        # Store files temporarily
-        temp_files = []
-        for file_info_item in file_info:
+        for uploaded_file in uploaded_files:
             if file_type == "pdf":
                 with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
-                    tmp_file.write(file_info_item['file_obj'].read())
-                    temp_files.append({
-                        'path': tmp_file.name,
-                        'name': file_info_item['name'],
-                        'size_mb': file_info_item['size_mb']
-                    })
+                    tmp_file.write(uploaded_file.read())
+                    temp_path = tmp_file.name
             else:  # JSON
                 with tempfile.NamedTemporaryFile(delete=False, suffix='.json', mode='w+b') as tmp_file:
-                    tmp_file.write(file_info_item['file_obj'].read())
-                    temp_files.append({
-                        'path': tmp_file.name,
-                        'name': file_info_item['name'],
-                        'size_mb': file_info_item['size_mb']
-                    })
+                    tmp_file.write(uploaded_file.read())
+                    temp_path = tmp_file.name
+            
+            file_list.append({
+                'name': uploaded_file.name,
+                'path': temp_path,
+                'size': uploaded_file.size
+            })
+            total_size += uploaded_file.size
         
-        return file_type, temp_files, "batch"
+        # Display upload summary
+        if len(file_list) == 1:
+            st.success(f"✅ File uploaded: {file_list[0]['name']}")
+            st.info(f"📊 File size: {file_list[0]['size'] / 1024 / 1024:.2f} MB")
+        else:
+            st.success(f"✅ {len(file_list)} files uploaded successfully!")
+            st.info(f"📊 Total size: {total_size / 1024 / 1024:.2f} MB")
+            
+            # Show file list
+            with st.expander("📋 View uploaded files"):
+                for i, file_info in enumerate(file_list, 1):
+                    st.write(f"{i}. **{file_info['name']}** ({file_info['size'] / 1024 / 1024:.2f} MB)")
+        
+        return file_type, file_list
     
-    return None, None, None
+    return None, None
 
-def output_settings_section(is_batch=False):
-    """Configure output settings with batch support"""
+
+
+def output_settings_section():
+    """Configure output settings"""
     st.subheader("📁 Output Settings")
     
-    if is_batch:
-        st.info("🗂️ Batch processing will create organized output structure")
-        
-        # Base output directory
-        output_dir = st.text_input(
-            "Base Output Directory",
-            value="./batch_output",
-            help="Base directory for all batch processing results"
-        )
-        
-        # Create directory button
-        if st.button("📁 Create Base Directory"):
-            try:
-                os.makedirs(output_dir, exist_ok=True)
-                st.success(f"✅ Directory created: {output_dir}")
-            except Exception as e:
-                st.error(f"❌ Failed to create directory: {e}")
-        
-        st.info("💡 Each file will be processed into its own subdirectory")
-        return output_dir, None
+    # Base output directory
+    output_dir = st.text_input(
+        "Output Directory",
+        value="./output",
+        help="Directory where processed files will be saved"
+    )
     
-    else:
-        # Single file output settings
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            output_dir = st.text_input(
-                "Output Directory",
-                value="./output",
-                help="Directory where processed files will be saved"
-            )
-        
-        with col2:
-            output_filename = st.text_input(
-                "Output Filename (optional)",
-                value="",
-                help="Custom base name for output files (leave empty to use original filename)"
-            )
-        
-        # Create directory button
-        if st.button("📁 Create Directory"):
-            try:
-                os.makedirs(output_dir, exist_ok=True)
-                st.success(f"✅ Directory created: {output_dir}")
-            except Exception as e:
-                st.error(f"❌ Failed to create directory: {e}")
-        
-        return output_dir, output_filename
-
-def process_files_section(file_type, file_path, file_name, output_dir, output_filename, config):
-    """Handle file processing"""
-    st.header("🔄 Processing")
-    
-    # Validate API configuration
-    if config['ai_provider'] != "LM Studio (Local)" and not config.get('api_key'):
-        st.warning(f"⚠️ Please provide an API key for {config['ai_provider']} in the sidebar")
-        return
-    
-    # Test connection first for external APIs
-    if config['ai_provider'] != "LM Studio (Local)":
-        with st.spinner("Testing API connection..."):
-            try:
-                from api_manager import APIManager
-                api_manager = APIManager(config)
-                success, message = api_manager.test_connection()
-                if not success:
-                    st.error(f"❌ API Connection Failed: {message}")
-                    st.info("💡 Please check your model name and API key, then try again.")
-                    return
-                else:
-                    st.success(message)
-            except Exception as e:
-                st.error(f"❌ API Connection Error: {str(e)}")
-                st.info("💡 Please check your model name and API key, then try again.")
-                return
-    
-    if st.button("🚀 Start Processing", type="primary"):
+    # Create directory button
+    if st.button("📁 Create Directory"):
         try:
-            # Initialize processors
-            if file_type == "pdf":
-                pdf_processor = PDFProcessor(config)
-                image_analyzer = ImageAnalyzer(config)
-                
-                # Create progress tracking
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                
-                # Step 1: Convert PDF to JSON
-                status_text.text("Step 1/4: Converting PDF to JSON...")
-                progress_bar.progress(25)
-                
-                # Use original filename if no custom name provided
-                actual_output_filename = output_filename if output_filename else None
-                json_result = pdf_processor.convert_pdf_to_json(file_path, output_dir, actual_output_filename)
-                
-                if not json_result:
-                    st.error("❌ Failed to convert PDF to JSON")
-                    return
-                
-                json_path = json_result['json_path']
-                base_filename = json_result['base_filename']
-                
-            else:  # JSON file
-                json_path = file_path
-                progress_bar = st.progress(25)
-                status_text = st.empty()
-                image_analyzer = ImageAnalyzer(config)
-                
-                # Extract base filename from JSON file
-                json_path_obj = Path(json_path)
-                base_filename = json_path_obj.stem
-                if base_filename.endswith('_step1_docling'):
-                    base_filename = base_filename[:-14]  # Remove step1 suffix
-                
-                status_text.text("Step 1/4: Loading JSON file...")
-                st.info("ℹ️ Skipping PDF conversion - using existing JSON")
-            
-            # Step 2: Extract and analyze images
-            status_text.text("Step 2/4: Extracting and analyzing images...")
-            progress_bar.progress(50)
-            
-            try:
-                analysis_results = image_analyzer.analyze_images_from_json(
-                    json_path, 
-                    config['enable_web_search']
-                )
-            except ValueError as e:
-                # Model validation or API errors
-                st.error(f"❌ Model/API Error: {str(e)}")
-                st.info("💡 Please check your model name in the sidebar and try again.")
-                return
-            except Exception as e:
-                st.error(f"❌ Image analysis failed: {str(e)}")
-                return
-            
-            if not analysis_results:
-                st.warning("⚠️ No informative images were found to analyze.")
-                st.info("This could mean:")
-                st.info("• All images are logos/watermarks")
-                st.info("• API model validation failed")
-                st.info("• No images found in the document")
-                return
-            
-            # Step 3: Generate enhanced JSON
-            status_text.text("Step 3/4: Generating enhanced JSON...")
-            progress_bar.progress(75)
-            
-            enhanced_json_path = image_analyzer.create_enhanced_json(
-                json_path, 
-                analysis_results, 
-                output_dir, 
-                base_filename  # Use consistent base filename
-            )
-            
-            # Step 4: Optional NLP-ready version
-            nlp_ready_path = None
-            if config['generate_nlp_ready']:
-                status_text.text("Step 4/4: Creating NLP-ready version...")
-                progress_bar.progress(90)
-                
-                nlp_ready_path = image_analyzer.create_nlp_ready_version(
-                    enhanced_json_path, 
-                    output_dir, 
-                    base_filename  # Use consistent base filename
-                )
-            
-            progress_bar.progress(100)
-            status_text.text("✅ Processing complete!")
-            
-            # Store results in session state
-            processing_result = {
-                'file_name': file_name,
-                'file_type': file_type,
-                'base_filename': base_filename,  # Add base filename for HTML reports
-                'original_json': json_path,
-                'enhanced_json': enhanced_json_path,
-                'nlp_ready_json': nlp_ready_path,
-                'analysis_results': analysis_results,
-                'output_dir': output_dir,
-                'ai_provider': config['ai_provider'],
-                'model_name': config['model_name'],
-                'timestamp': datetime.now()
-            }
-            
-            st.session_state.processed_data = processing_result
-            st.session_state.processing_complete = True
-            
-            # Add to processing history
-            st.session_state.processing_history.append(processing_result)
-            
-            st.success(f"🎉 Processing completed successfully! Found {len(analysis_results)} informative images.")
-            
+            os.makedirs(output_dir, exist_ok=True)
+            st.success(f"✅ Directory created: {output_dir}")
         except Exception as e:
-            st.error(f"❌ Processing failed: {str(e)}")
-            st.info("💡 Please check your configuration and try again.")
-            logging.error(f"Processing error: {e}", exc_info=True)
+            st.error(f"❌ Failed to create directory: {e}")
+    
+    st.info("💡 Files will use simplified naming: filename.json, filename_report.html, etc.")
+    return output_dir
+
+
 
 def process_batch_files(file_type, file_list, base_output_dir, config):
-    """Process multiple files in batch"""
+    """Process files with unified naming scheme"""
     try:
-        st.header("🔄 Batch Processing")
+        if len(file_list) == 1:
+            st.header("🔄 Processing File")
+        else:
+            st.header(f"🔄 Processing {len(file_list)} Files")
         
         # Validate API configuration
         if config['ai_provider'] != "LM Studio (Local)" and not config.get('api_key'):
@@ -972,18 +735,13 @@ def process_single_file_batch(file_type, file_path, file_name, output_dir, confi
             json_path = file_path
             image_analyzer = ImageAnalyzer(config)
             
-            # Extract base filename from JSON file
-            json_path_obj = Path(json_path)
-            base_filename = json_path_obj.stem
-            if base_filename.endswith('_step1_docling'):
-                base_filename = base_filename[:-14]
-            elif base_filename.endswith('_step2_enhanced'):
-                base_filename = base_filename[:-15]
-            elif base_filename.endswith('_step3_nlp_ready'):
-                base_filename = base_filename[:-16]
+            # Use original filename (without extension) as base filename
+            # This preserves the complete original name without stripping suffixes
+            base_filename = Path(file_name).stem
             
-            # For batch processing, copy JSON to output directory with clean name
-            target_json_path = os.path.join(output_dir, f"{base_filename}.json")
+            # Copy JSON to output directory if it's not already there
+            # Use original filename for the copy to avoid conflicts with enhanced versions
+            target_json_path = os.path.join(output_dir, file_name)
             if json_path != target_json_path:
                 import shutil
                 shutil.copy2(json_path, target_json_path)
@@ -1953,10 +1711,18 @@ def create_batch_zip_download(successful_results):
 
 def get_processing_config():
     """Get processing configuration from session state"""
+    ai_provider = st.session_state.get('ai_provider', 'LM Studio (Local)')
+    
+    # Handle API key based on provider
+    if ai_provider == "LM Studio (Local)":
+        api_key = ""  # No API key needed for local LM Studio
+    else:
+        api_key = st.session_state.get('api_key', '')
+    
     return {
-        'ai_provider': st.session_state.get('ai_provider', 'LM Studio (Local)'),
+        'ai_provider': ai_provider,
         'model_name': st.session_state.get('model_name', ''),
-        'api_key': st.session_state.get('api_key', ''),
+        'api_key': api_key,
         'lm_studio_url': st.session_state.get('lm_studio_url', 'http://localhost:1234/v1/chat/completions'),
         'enable_web_search': st.session_state.get('enable_web_search', True),
         'generate_nlp_ready': st.session_state.get('generate_nlp_ready', False),
@@ -1977,7 +1743,7 @@ def main():
     if 'batch_processing_complete' not in st.session_state:
         st.session_state.batch_processing_complete = False
     
-    # Sidebar configuration
+    # Configure sidebar UI components
     configure_sidebar()
     
     # Main interface tabs
@@ -1985,29 +1751,27 @@ def main():
     
     with tab1:
         # Main processing tab
-        file_type, file_data, file_name = upload_files_section()
+        file_type, file_list = upload_files_section()
         
-        if file_data:
-            if file_name == "batch":
-                # Batch processing
-                output_dir, output_filename = output_settings_section(is_batch=True)
-                config = get_processing_config()
-                
-                if st.button("🚀 Start Batch Processing", type="primary"):
-                    process_batch_files(file_type, file_data, output_dir, config)
+        if file_list:
+            # Output settings
+            output_dir = output_settings_section()
+            config = get_processing_config()
+            
+            # Display processing summary
+            if len(file_list) == 1:
+                st.info(f"📄 Ready to process: **{file_list[0]['name']}**")
             else:
-                # Single file processing
-                output_dir, output_filename = output_settings_section(is_batch=False)
-                config = get_processing_config()
-                
-                process_files_section(file_type, file_data, file_name, output_dir, output_filename, config)
+                st.info(f"📚 Ready to process **{len(file_list)} files** in batch")
+            
+            # Start processing button
+            if st.button("🚀 Start Processing", type="primary"):
+                process_batch_files(file_type, file_list, output_dir, config)
     
     with tab2:
         # Results display
         if st.session_state.batch_processing_complete and st.session_state.batch_results:
             display_batch_results()
-        elif st.session_state.processing_complete and st.session_state.processed_data:
-            display_results()
         else:
             st.info("📭 No processing results yet. Please process files first.")
     

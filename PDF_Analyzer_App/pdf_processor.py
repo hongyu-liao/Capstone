@@ -99,7 +99,7 @@ class PDFProcessor:
             self.logger.info(f"💾 Saved JSON: {Path(json_output_path).name}")
             
             # Update metadata with output path
-            metadata['json_output_path'] = json_output_path
+            metadata['json_path'] = json_output_path
             metadata['conversion_status'] = 'success'
             
             self.logger.info(f"🎉 JSON file generated successfully in {conversion_time:.2f} seconds!")
