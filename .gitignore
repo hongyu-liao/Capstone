@@ -4,6 +4,9 @@ hf_token.txt
 PROJECT_FUNCTIONS_DOCUMENTATION.md
 AI_START_HERE_READ_PROJECT_FUNCTIONS_DOCUMENTATION_MD_FIRST.txt
 
+# Project files log (auto-generated, not version controlled)
+project_files_log.csv
+
 # Image files
 chart_recognition_result.png
 Flowchart of the Project.png

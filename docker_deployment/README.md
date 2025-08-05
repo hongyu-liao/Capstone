@@ -15,6 +15,7 @@ A containerized PDF analysis system that extracts, analyzes, and describes image
 - **🚫 No GUI Required**: Runs entirely in command-line interface
 - **🐳 Containerized**: Ready-to-deploy Docker solution
 - **⚡ GPU Accelerated**: CUDA support for faster processing (optional)
+- **🎯 Device Selection**: Automatic detection and user selection of CPU/GPU devices
 - **🌐 Multi-format Output**: Original, enhanced, and NLP-ready JSON formats
 
 ## 🎯 Quick Start
@@ -63,12 +64,40 @@ cd pdf-image-analyzer/docker_deployment
 
 4. **Run the analyzer**
    ```bash
-   # With GPU support
+   # With GPU support (recommended)
    docker run --gpus all -v $(pwd)/input:/app/input -v $(pwd)/output:/app/output pdf-analyzer
    
    # CPU only
    docker run -v $(pwd)/input:/app/input -v $(pwd)/output:/app/output pdf-analyzer
    ```
+
+## 🎯 Device Selection
+
+The system automatically detects your Torch environment and available devices:
+
+### Automatic Detection
+- **PyTorch Version**: Displays current PyTorch version
+- **CUDA Availability**: Checks if CUDA is available
+- **GPU Devices**: Lists all available GPUs with names and memory
+- **Device Selection**: Interactive menu to choose CPU or GPU
+
+### Device Options
+1. **CPU**: Slower but more compatible, works on all systems
+2. **GPU**: Faster processing, requires CUDA support
+   - Single GPU: Automatically selected
+   - Multiple GPUs: User can choose specific GPU
+
+### Command Line Options
+```bash
+# Automatic device detection and selection (default)
+python main.py document.pdf --device auto
+
+# Force CPU usage
+python main.py document.pdf --device cpu
+
+# Force GPU usage (falls back to CPU if CUDA unavailable)
+python main.py document.pdf --device gpu
+```
 
 ## 📊 Output Files
 
@@ -84,7 +113,7 @@ After processing, you'll find in the `output/` directory:
 ### Command Line Options
 
 ```bash
-# Basic usage
+# Basic usage with device selection
 python main.py document.pdf
 
 # Disable web search (faster processing)
@@ -98,6 +127,10 @@ python main.py document.pdf --model google/gemma-2-9b-it
 
 # Custom output directory
 python main.py document.pdf --output-dir /custom/path
+
+# Force specific device
+python main.py document.pdf --device cpu
+python main.py document.pdf --device gpu
 ```
 
 ### Performance Tuning
@@ -108,16 +141,21 @@ docker run --memory=16g --gpus all -v $(pwd)/input:/app/input -v $(pwd)/output:/
 
 # Increase shared memory for batch processing
 docker run --shm-size=2g --gpus all -v $(pwd)/input:/app/input -v $(pwd)/output:/app/output pdf-analyzer
+
+# Use specific GPU device
+docker run --gpus '"device=0"' -v $(pwd)/input:/app/input -v $(pwd)/output:/app/output pdf-analyzer
 ```
 
 ## 🏗️ Architecture
 
 ### PDF Processing Pipeline
-1. **Document Conversion**: Docling SmolDocling VLM extracts text and images
-2. **Image Classification**: AI identifies informative vs decorative images
-3. **Content Analysis**: Detailed description generation for informative images
-4. **Web Enhancement**: Contextual search for conceptual images
-5. **Output Generation**: Multiple format outputs for different use cases
+1. **Device Detection**: Automatic Torch environment and GPU detection
+2. **Device Selection**: User chooses between CPU and GPU
+3. **Document Conversion**: Docling SmolDocling VLM extracts text and images
+4. **Image Classification**: AI identifies informative vs decorative images
+5. **Content Analysis**: Detailed description generation for informative images
+6. **Web Enhancement**: Contextual search for conceptual images
+7. **Output Generation**: Multiple format outputs for different use cases
 
 ### Technical Stack
 - **Base Image**: PyTorch 2.6.0 with CUDA 12.4
@@ -125,6 +163,7 @@ docker run --shm-size=2g --gpus all -v $(pwd)/input:/app/input -v $(pwd)/output:
 - **AI Models**: Hugging Face Transformers
 - **Web Search**: DuckDuckGo Search API
 - **Container**: Docker with NVIDIA runtime support
+- **Device Management**: Automatic CUDA detection and device selection
 
 ## 🛠️ Troubleshooting
 
@@ -148,20 +187,12 @@ docker run --shm-size=2g --gpus all -v $(pwd)/input:/app/input -v $(pwd)/output:
    - First run downloads ~10GB of models
    - Check available disk space
 
+4. **Device selection issues**
+   - Check CUDA installation: `nvidia-smi`
+   - Verify Docker GPU support: `docker run --gpus all nvidia/cuda:12.4-base-ubuntu20.04 nvidia-smi`
+   - Use CPU fallback: `--device cpu`
+
 For detailed troubleshooting, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
-
-## 📋 System Requirements
-
-**Minimum:**
-- 8GB RAM
-- 5GB free disk space
-- Docker Desktop 4.0+
-
-**Recommended:**
-- 16GB+ RAM
-- 20GB+ free disk space
-- NVIDIA GPU with 8GB+ VRAM
-- Docker Desktop with NVIDIA Container Toolkit
 
 ## 🔄 Development
 
@@ -186,12 +217,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 3. Commit your changes (`git commit -m 'Add amazing feature'`)
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
-
-## 📧 Support
-
-- **Documentation**: Check [start.md](start.md) for quick start guide
-- **Issues**: Report bugs via GitHub Issues
-- **Discussions**: Join GitHub Discussions for questions
 
 ## 🙏 Acknowledgments
 

@@ -9,6 +9,7 @@ import json
 import time
 import argparse
 import base64
+import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 import requests
@@ -36,30 +37,130 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+def detect_torch_environment():
+    """Detect Torch environment and available devices"""
+    print("🔍 Detecting Torch Environment...")
+    print("=" * 50)
+    
+    # Check PyTorch version
+    print(f"PyTorch Version: {torch.__version__}")
+    
+    # Check CUDA availability
+    cuda_available = torch.cuda.is_available()
+    print(f"CUDA Available: {'✅ Yes' if cuda_available else '❌ No'}")
+    
+    if cuda_available:
+        # Get CUDA version
+        cuda_version = torch.version.cuda
+        print(f"CUDA Version: {cuda_version}")
+        
+        # Get number of GPUs
+        gpu_count = torch.cuda.device_count()
+        print(f"Number of GPUs: {gpu_count}")
+        
+        # List all GPU devices
+        print("\n📊 Available GPU Devices:")
+        for i in range(gpu_count):
+            gpu_name = torch.cuda.get_device_name(i)
+            gpu_memory = torch.cuda.get_device_properties(i).total_memory / (1024**3)  # Convert to GB
+            print(f"  GPU {i}: {gpu_name} ({gpu_memory:.1f} GB)")
+            
+        # Get current device
+        current_device = torch.cuda.current_device()
+        print(f"\nCurrent GPU Device: {current_device}")
+        
+        return True, gpu_count
+    else:
+        print("⚠️  CUDA not available. Will use CPU.")
+        return False, 0
+
+def select_device():
+    """Allow user to select between CPU and GPU"""
+    cuda_available, gpu_count = detect_torch_environment()
+    
+    if not cuda_available:
+        print("\n🚀 Using CPU for processing...")
+        return torch.device("cpu")
+    
+    print(f"\n🎯 Device Selection:")
+    print("1. CPU (slower but more compatible)")
+    print("2. GPU (faster, requires CUDA)")
+    
+    while True:
+        try:
+            choice = input("\nSelect device (1 for CPU, 2 for GPU): ").strip()
+            
+            if choice == "1":
+                print("✅ Selected CPU for processing...")
+                return torch.device("cpu")
+            elif choice == "2":
+                if gpu_count > 1:
+                    print(f"\nMultiple GPUs detected. Select GPU (0-{gpu_count-1}):")
+                    for i in range(gpu_count):
+                        gpu_name = torch.cuda.get_device_name(i)
+                        print(f"  {i}: {gpu_name}")
+                    
+                    while True:
+                        try:
+                            gpu_choice = int(input(f"Select GPU (0-{gpu_count-1}): "))
+                            if 0 <= gpu_choice < gpu_count:
+                                print(f"✅ Selected GPU {gpu_choice}: {torch.cuda.get_device_name(gpu_choice)}")
+                                torch.cuda.set_device(gpu_choice)
+                                return torch.device(f"cuda:{gpu_choice}")
+                            else:
+                                print(f"❌ Invalid GPU number. Please select 0-{gpu_count-1}")
+                        except ValueError:
+                            print("❌ Please enter a valid number")
+                else:
+                    print("✅ Selected GPU for processing...")
+                    return torch.device("cuda")
+            else:
+                print("❌ Invalid choice. Please enter 1 or 2.")
+        except KeyboardInterrupt:
+            print("\n\n⚠️  Interrupted by user. Using CPU as default...")
+            return torch.device("cpu")
+
 class PDFImageProcessor:
     """Main class for processing PDFs with SmolDocling and Hugging Face models"""
     
-    def __init__(self, model_name: str = "google/gemma-3-12b-it"):
+    def __init__(self, model_name: str = "google/gemma-3-12b-it", device: Optional[torch.device] = None):
         self.model_name = model_name
+        
+        # Use provided device or detect automatically
+        if device is None:
+            self.device = select_device()
+        else:
+            self.device = device
+            
         self.tokenizer = None
         self.model = None
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
         logger.info(f"Using device: {self.device}")
+        print(f"🚀 Initialized with device: {self.device}")
         
     def initialize_hf_model(self):
         """Initialize Hugging Face model for image analysis"""
         try:
             logger.info(f"Loading Hugging Face model: {self.model_name}")
+            print(f"🤖 Loading model: {self.model_name}")
+            
             self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_name,
-                torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-                device_map="auto" if torch.cuda.is_available() else None
+                torch_dtype=torch.float16 if self.device.type == "cuda" else torch.float32,
+                device_map="auto" if self.device.type == "cuda" else None
             )
+            
+            # Move model to selected device if not using device_map
+            if self.device.type == "cpu" or (self.device.type == "cuda" and self.model.device.type != self.device.type):
+                self.model = self.model.to(self.device)
+                
             logger.info("✅ Hugging Face model loaded successfully")
+            print("✅ Model loaded successfully!")
             return True
         except Exception as e:
             logger.error(f"❌ Failed to load Hugging Face model: {e}")
+            print(f"❌ Failed to load model: {e}")
             return False
 
     def convert_pdf_with_smoldocling(self, pdf_path: str, output_dir: str) -> Optional[str]:
@@ -74,6 +175,7 @@ class PDFImageProcessor:
             output_dir.mkdir(parents=True, exist_ok=True)
             
             logger.info(f"🚀 Converting PDF with SmolDocling: {pdf_path.name}")
+            print(f"📄 Converting PDF: {pdf_path.name}")
             
             # Configure SmolDocling VLM pipeline using default SmolDocling model
             # This follows the pattern from https://docling-project.github.io/docling/examples/minimal_vlm_pipeline/
@@ -88,40 +190,37 @@ class PDFImageProcessor:
                 )
                 
                 logger.info("Using SmolDocling with default transformers framework")
+                print("🔧 Using SmolDocling VLM pipeline...")
                 
             except Exception as config_error:
                 logger.warning(f"SmolDocling configuration failed: {config_error}")
                 logger.info("Falling back to standard pipeline")
+                print("⚠️  Falling back to standard pipeline...")
                 
                 # Fallback to standard pipeline if VLM fails
                 converter = DocumentConverter()
             
             # Convert PDF
             logger.info("Starting PDF conversion...")
-            result = converter.convert(source=str(pdf_path))
-            document = result.document
+            print("⏳ Starting conversion...")
+            
+            # Convert the PDF
+            doc = converter.convert(pdf_path)
             
             # Save as JSON
-            json_filename = f"{pdf_path.stem}_smoldocling.json"
-            json_path = output_dir / json_filename
-            document.save_as_json(json_path)
+            output_filename = f"{pdf_path.stem}_smoldocling.json"
+            output_path = output_dir / output_filename
             
-            logger.info(f"✅ PDF converted successfully: {json_path}")
+            with open(output_path, 'w', encoding='utf-8') as f:
+                json.dump(doc.to_dict(), f, indent=2, ensure_ascii=False)
             
-            # Log conversion statistics
-            if hasattr(document, 'pictures') and document.pictures:
-                logger.info(f"   📸 Extracted {len(document.pictures)} images")
-            
-            if hasattr(document, 'texts') and document.texts:
-                text_count = len(document.texts)
-                logger.info(f"   📝 Extracted {text_count} text elements")
-            
-            return str(json_path)
+            logger.info(f"✅ PDF converted successfully: {output_path}")
+            print(f"✅ PDF converted: {output_filename}")
+            return str(output_path)
             
         except Exception as e:
             logger.error(f"❌ PDF conversion failed: {e}")
-            import traceback
-            logger.error(f"Traceback: {traceback.format_exc()}")
+            print(f"❌ PDF conversion failed: {e}")
             return None
 
     def analyze_image_with_hf(self, image_data: str, pic_number: int) -> Optional[Dict]:
@@ -458,11 +557,32 @@ def main():
     parser.add_argument('--model', default='google/gemma-3-12b-it', help='Hugging Face model name')
     parser.add_argument('--no-web-search', action='store_true', help='Disable web search for conceptual images')
     parser.add_argument('--keep-images', action='store_true', help='Keep images in final output')
+    parser.add_argument('--device', choices=['auto', 'cpu', 'gpu'], default='auto', 
+                       help='Device selection (auto: detect and ask, cpu: force CPU, gpu: force GPU)')
     
     args = parser.parse_args()
     
-    # Initialize processor
-    processor = PDFImageProcessor(model_name=args.model)
+    print("🚀 PDF Image Analyzer - Docker Deployment")
+    print("=" * 50)
+    
+    # Handle device selection
+    if args.device == 'auto':
+        # Let user select device
+        selected_device = select_device()
+    elif args.device == 'cpu':
+        print("🔧 Forcing CPU usage...")
+        selected_device = torch.device("cpu")
+    elif args.device == 'gpu':
+        if torch.cuda.is_available():
+            print("🔧 Forcing GPU usage...")
+            selected_device = torch.device("cuda")
+        else:
+            print("⚠️  GPU requested but CUDA not available. Falling back to CPU...")
+            selected_device = torch.device("cpu")
+    
+    # Initialize processor with selected device
+    print(f"\n🤖 Initializing processor with device: {selected_device}")
+    processor = PDFImageProcessor(model_name=args.model, device=selected_device)
     
     # Initialize models (commented out HF model for now due to complexity)
     # if not processor.initialize_hf_model():
@@ -470,14 +590,15 @@ def main():
     #     return
     
     # Convert PDF
-    logger.info("=== Starting PDF Processing ===")
+    print("\n=== Starting PDF Processing ===")
     json_path = processor.convert_pdf_with_smoldocling(args.pdf_path, args.output_dir)
     if not json_path:
         logger.error("PDF conversion failed")
+        print("❌ PDF conversion failed")
         return
     
     # Process images
-    logger.info("=== Starting Image Analysis ===")
+    print("\n=== Starting Image Analysis ===")
     analysis_results = processor.process_images_from_json(
         json_path, 
         enable_web_search=not args.no_web_search
@@ -485,10 +606,11 @@ def main():
     
     if not analysis_results:
         logger.warning("No images were successfully analyzed")
+        print("⚠️  No images were successfully analyzed")
         return
     
     # Create enhanced JSON
-    logger.info("=== Creating Enhanced JSON ===")
+    print("\n=== Creating Enhanced JSON ===")
     enhanced_json_path = processor.create_enhanced_json(
         json_path, 
         analysis_results, 
@@ -497,11 +619,12 @@ def main():
     
     if not enhanced_json_path:
         logger.error("Failed to create enhanced JSON")
+        print("❌ Failed to create enhanced JSON")
         return
     
     # Create NLP-ready version if requested
     if not args.keep_images:
-        logger.info("=== Creating NLP-Ready JSON ===")
+        print("\n=== Creating NLP-Ready JSON ===")
         nlp_ready_path = processor.create_nlp_ready_json(
             enhanced_json_path, 
             args.output_dir
@@ -509,10 +632,13 @@ def main():
         
         if nlp_ready_path:
             logger.info(f"🎉 Processing complete! NLP-ready file: {nlp_ready_path}")
+            print(f"🎉 Processing complete! NLP-ready file: {nlp_ready_path}")
         else:
             logger.error("Failed to create NLP-ready JSON")
+            print("❌ Failed to create NLP-ready JSON")
     else:
         logger.info(f"🎉 Processing complete! Enhanced file: {enhanced_json_path}")
+        print(f"🎉 Processing complete! Enhanced file: {enhanced_json_path}")
 
 if __name__ == "__main__":
     main()

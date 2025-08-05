@@ -1,21 +1,22 @@
 #!/bin/bash
 
 echo "=== PDF Image Analyzer - Docker Deployment ==="
-echo "Scanning for PDF files in /app/input..."
+echo "🔍 Scanning for PDF files in /app/input..."
 
 # Check if input directory has any PDF files
 if ls /app/input/*.pdf 1> /dev/null 2>&1; then
-    echo "Found PDF files to process:"
+    echo "✅ Found PDF files to process:"
     ls -la /app/input/*.pdf
     
     # Process each PDF file
     for pdf_file in /app/input/*.pdf; do
         echo ""
-        echo "Processing: $(basename "$pdf_file")"
+        echo "📄 Processing: $(basename "$pdf_file")"
         echo "========================================"
         
-        # Run the main processing script
-        python main.py "$pdf_file" --output-dir /app/output
+        # Run the main processing script with device selection
+        # The script will automatically detect and ask for device selection
+        python main.py "$pdf_file" --output-dir /app/output --device auto
         
         # Check if processing was successful
         if [ $? -eq 0 ]; then
@@ -27,7 +28,7 @@ if ls /app/input/*.pdf 1> /dev/null 2>&1; then
     done
     
     echo "=== Processing Complete ==="
-    echo "Results are available in /app/output/"
+    echo "📁 Results are available in /app/output/"
     ls -la /app/output/
     
 else
@@ -36,8 +37,11 @@ else
     echo ""
     echo "Usage example:"
     echo "docker run -v /path/to/pdfs:/app/input -v /path/to/output:/app/output pdf-analyzer"
+    echo ""
+    echo "For GPU support:"
+    echo "docker run --gpus all -v /path/to/pdfs:/app/input -v /path/to/output:/app/output pdf-analyzer"
 fi
 
 # Keep container running for debugging if needed
 echo ""
-echo "Container will exit now. Check /app/output for results."
+echo "🏁 Container will exit now. Check /app/output for results."
