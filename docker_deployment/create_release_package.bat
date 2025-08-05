@@ -55,11 +55,36 @@ if errorlevel 1 (
     echo ⚠️  Docker image 'pdf-analyzer' not found
     echo Build the image first with: deploy.bat
     echo Skipping Docker image archive creation
-) else (
-    echo Creating Docker image archive...
-    docker save pdf-analyzer:latest | gzip > "%RELEASE_DIR%\pdf-analyzer-docker-image-v1.0.0.tar.gz"
-    echo ✅ Docker image archive created
+    goto skip_docker_archive
+) 
+
+echo Creating Docker image archive...
+REM Save Docker image to temporary tar file
+docker save pdf-analyzer:latest > temp_docker_image.tar
+if errorlevel 1 (
+    echo ⚠️ Failed to save Docker image
+    echo Skipping Docker image archive creation
+    goto skip_docker_archive
 )
+
+REM Compress using PowerShell (Windows native)
+powershell -Command "Compress-Archive -Path 'temp_docker_image.tar' -DestinationPath '%RELEASE_DIR%\pdf-analyzer-docker-image-v1.0.0.zip' -Force"
+if errorlevel 1 (
+    echo ⚠️ Failed to compress Docker image
+    echo Skipping Docker image archive creation
+    if exist temp_docker_image.tar del temp_docker_image.tar
+    goto skip_docker_archive
+)
+
+REM Clean up temporary file
+del temp_docker_image.tar
+echo ✅ Docker image archive created (as .zip file)
+goto docker_archive_done
+
+:skip_docker_archive
+echo ℹ️  Continuing without Docker image archive
+
+:docker_archive_done
 
 echo.
 echo ================================================================
@@ -88,7 +113,7 @@ echo.
 echo quick-start-linux.sh:
 echo   "One-click installer for Linux/macOS users"
 echo.
-echo pdf-analyzer-docker-image-v1.0.0.tar.gz:
+echo pdf-analyzer-docker-image-v1.0.0.zip:
 echo   "Pre-built Docker image for offline installation (optional)"
 echo.
 pause
