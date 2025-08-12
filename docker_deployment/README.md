@@ -16,6 +16,7 @@ A containerized PDF analysis system that extracts, analyzes, and describes image
 - **🐳 Containerized**: Ready-to-deploy Docker solution
 - **⚡ GPU Accelerated**: CUDA support for faster processing (optional)
 - **🎯 Device Selection**: Automatic detection and user selection of CPU/GPU devices
+- **🤖 Custom Model Selection**: Interactive model selection for image analysis with support for custom Hugging Face models
 - **🌐 Multi-format Output**: Original, enhanced, and NLP-ready JSON formats
 
 ## 🎯 Quick Start
@@ -109,6 +110,37 @@ After processing, you'll find in the `output/` directory:
 - **`processing.log`** - Detailed processing logs
 
 ## 🔧 Advanced Usage
+
+### Model Selection for Image Analysis
+
+During image analysis, the system will prompt you to select a model:
+
+```bash
+🤖 Image Analysis Model Selection:
+Default model: google/gemma-3-12b-it
+You can:
+1. Press Enter to use the default model
+2. Enter a custom Hugging Face model address (e.g., google/gemma-3-27b-it)
+3. Enter 'list' to see some popular model examples
+
+Enter model address (or press Enter for default):
+```
+
+#### Popular Model Examples
+- **google/gemma-3-12b-it** (default) - Balanced performance and accuracy
+- **google/gemma-3-27b-it** - Higher accuracy, larger model
+- **google/gemma-2-27b-it** - Alternative Gemma model
+- **meta-llama/Llama-3.1-8B-Instruct** - Meta's Llama model
+- **microsoft/DialoGPT-medium** - Microsoft's conversational model
+- **tiiuae/falcon-7b-instruct** - Falcon instruction-tuned model
+- **EleutherAI/gpt-neo-2.7B** - GPT-Neo model
+
+#### Model Selection Tips
+- **Default Model**: Press Enter to use the pre-configured `google/gemma-3-12b-it`
+- **Custom Models**: Enter the full Hugging Face model address (e.g., `organization/model-name`)
+- **Model Validation**: The system validates the model address format before proceeding
+- **Error Handling**: Invalid models will prompt for re-entry
+- **Interruption**: Press Ctrl+C to use the default model
 
 ### Command Line Options
 

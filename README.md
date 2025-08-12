@@ -11,6 +11,19 @@
 
 PDF Image Analyzer is a cutting-edge solution that transforms static PDF documents into intelligent, searchable content. By combining advanced document processing with state-of-the-art AI vision models, it extracts images, analyzes their content, and enhances them with contextual information from web searches.
 
+### 🔧 What's New
+
+- New modular `Functions/` package with clean, testable functions:
+  - PDF→JSON (`pdf_to_json.py`)
+  - Image analysis, web search, and enrichment (`image_analysis.py`)
+  - DePlot chart extraction with robust parser (`chart_extraction.py`)
+  - Two-step processing pipeline (`pipeline_steps.py`)
+  - Final JSON verification (no file output, returns structured results) (`verification.py`)
+  - Simple logging setup (`utils_logging.py`)
+- Reproducible two-stage notebook `Reproduce_Two_Stages.ipynb` to separately run:
+  1) PDF→JSON; 2) JSON→Enhanced→NLP-ready + inline verification
+- Headless DePlot debug tester `Functions/debug_deplot_test.py` (prints structure only)
+
 ### ✨ Key Features
 
 - 🔍 **Smart PDF Processing** - Extract text and images using Docling with VLM pipeline
@@ -168,6 +181,15 @@ PDF-Image-Analyzer/
 │   ├── html_report_generator.py  # Report generation
 │   └── output/                   # Processing results
 │
+├── 🧩 Functions/                 # Modular function package (new)
+│   ├── pdf_to_json.py            # LM Studio + Docling PDF→JSON
+│   ├── image_analysis.py         # Image analysis + web search + enrichment
+│   ├── chart_extraction.py       # DePlot extraction + robust parser
+│   ├── pipeline_steps.py         # Step1 (enhance) + Step2 (NLP-ready)
+│   ├── verification.py           # Final JSON validator (returns dict)
+│   ├── utils_logging.py          # Logging setup
+│   └── debug_deplot_test.py      # Headless DePlot tester
+│
 ├── 🐳 docker_deployment/          # Production Docker Setup
 │   ├── main.py                   # Containerized processing engine
 │   ├── Dockerfile                # Container configuration
@@ -183,6 +205,9 @@ PDF-Image-Analyzer/
 ├── 📂 Sample Data/
 │   ├── Sample Papers/            # Test PDF documents
 │   └── Sample Line Chart/        # Chart analysis examples
+│
+├── Reproduce_Two_Stages.ipynb    # Reproducible 2-stage pipeline notebook (new)
+│                                  # Stage 1: PDF→JSON; Stage 2: JSON→Enhanced→NLP-ready + verification
 │
 └── 📚 Documentation/
     ├── PROJECT_FUNCTIONS_DOCUMENTATION.md  # Complete function reference
@@ -364,6 +389,12 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - ✅ GitHub Release automation
 - ✅ Comprehensive English documentation
 - ✅ Production-ready error handling
+
+### v1.1.0 - Functions Module and Reproducible Notebook
+- 🧩 Introduced `Functions/` package (clean modularization)
+- 🧪 Added `Reproduce_Two_Stages.ipynb` to independently run two-stage processing
+- 🔍 Added headless DePlot tester and robust parser improvements
+- ✅ Integrated inline final JSON verification (no file output)
 
 ---
 

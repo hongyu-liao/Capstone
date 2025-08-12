@@ -1,0 +1,14 @@
+AI CONTENT INSERTION VERIFICATION REPORT
+============================================================
+
+File: C:\Users\Hongyu\OneDrive - Northwestern University\NU\Capstone\PDF_Analyzer_App\output\applsci-14-07088-v2_nlp_ready.json
+
+SUMMARY:
+Total Pictures: 5
+No Images OK: True (images found: 0)
+With AI Analysis: 5
+With Non-Empty Description: 5
+With Web Context: 2
+With Chart Data: 0
+Overall OK: True
+

@@ -120,6 +120,56 @@ def select_device():
             print("\n\n⚠️  Interrupted by user. Using CPU as default...")
             return torch.device("cpu")
 
+def select_model_for_image_analysis() -> str:
+    """Allow user to select or input a custom Hugging Face model for image analysis"""
+    default_model = "google/gemma-3-12b-it"
+    
+    print(f"\n🤖 Image Analysis Model Selection:")
+    print(f"Default model: {default_model}")
+    print("You can:")
+    print("1. Press Enter to use the default model")
+    print("2. Enter a custom Hugging Face model address (e.g., google/gemma-3-27b-it)")
+    print("3. Enter 'list' to see some popular model examples")
+    
+    while True:
+        try:
+            user_input = input("\nEnter model address (or press Enter for default): ").strip()
+            
+            if not user_input:
+                print(f"✅ Using default model: {default_model}")
+                return default_model
+            
+            if user_input.lower() == 'list':
+                print("\n📋 Popular Hugging Face Model Examples:")
+                print("  • google/gemma-3-12b-it (default)")
+                print("  • google/gemma-3-27b-it")
+                print("  • google/gemma-2-27b-it")
+                print("  • meta-llama/Llama-3.1-8B-Instruct")
+                print("  • microsoft/DialoGPT-medium")
+                print("  • tiiuae/falcon-7b-instruct")
+                print("  • EleutherAI/gpt-neo-2.7B")
+                continue
+            
+            # Validate the model address format
+            if '/' not in user_input:
+                print("❌ Invalid model address format. Please use format: organization/model-name")
+                continue
+            
+            # Check if it looks like a valid Hugging Face model address
+            if len(user_input.split('/')) != 2:
+                print("❌ Invalid model address format. Please use format: organization/model-name")
+                continue
+            
+            print(f"✅ Selected custom model: {user_input}")
+            return user_input
+            
+        except KeyboardInterrupt:
+            print("\n\n⚠️  Interrupted by user. Using default model...")
+            return default_model
+        except Exception as e:
+            print(f"❌ Error: {e}")
+            continue
+
 class PDFImageProcessor:
     """Main class for processing PDFs with SmolDocling and Hugging Face models"""
     
@@ -137,6 +187,16 @@ class PDFImageProcessor:
         
         logger.info(f"Using device: {self.device}")
         print(f"🚀 Initialized with device: {self.device}")
+        
+    def set_model(self, model_name: str):
+        """Set a new model for image analysis"""
+        if self.model_name != model_name:
+            self.model_name = model_name
+            # Clear existing model to force re-initialization
+            self.tokenizer = None
+            self.model = None
+            logger.info(f"Model changed to: {self.model_name}")
+            print(f"🔄 Model changed to: {self.model_name}")
         
     def initialize_hf_model(self):
         """Initialize Hugging Face model for image analysis"""
@@ -226,6 +286,12 @@ class PDFImageProcessor:
     def analyze_image_with_hf(self, image_data: str, pic_number: int) -> Optional[Dict]:
         """Analyze image using Hugging Face model with original prompt structure"""
         try:
+            # Initialize model if not already loaded
+            if self.model is None or self.tokenizer is None:
+                if not self.initialize_hf_model():
+                    logger.error(f"Failed to initialize model for image {pic_number}")
+                    return None
+            
             # Original enhanced prompt from notebook
             enhanced_prompt = """You are an expert scientific analyst. Analyze the provided image and follow these steps:
 
@@ -248,13 +314,7 @@ TYPE: [DATA_VISUALIZATION/CONCEPTUAL]
 DETAILED_DESCRIPTION: [Your comprehensive replacement text description that captures all essential information from the image]
 SEARCH_KEYWORDS: [keyword1, keyword2, keyword3] (only if CONCEPTUAL type)"""
 
-            # Note: This is a simplified implementation
-            # For full vision-language capabilities, you would need:
-            # 1. A vision-language model like LLaVA, InstructBLIP, or multimodal Gemma
-            # 2. Proper image preprocessing and tokenization
-            # 3. Model-specific prompt formatting
-            
-            logger.info(f"🔍 Analyzing image {pic_number} (using simplified analysis)")
+            logger.info(f"🔍 Analyzing image {pic_number} with model: {self.model_name}")
             
             # For this Docker deployment, we use SmolDocling's built-in vision capabilities
             # The image analysis will be performed by the VLM pipeline during PDF conversion
@@ -599,6 +659,11 @@ def main():
     
     # Process images
     print("\n=== Starting Image Analysis ===")
+    
+    # Allow user to select model for image analysis
+    selected_model = select_model_for_image_analysis()
+    processor.set_model(selected_model)
+    
     analysis_results = processor.process_images_from_json(
         json_path, 
         enable_web_search=not args.no_web_search
