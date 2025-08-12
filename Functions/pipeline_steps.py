@@ -11,13 +11,14 @@ import json
 import logging
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 
 from .chart_extraction import extract_chart_data_with_deplot
 from .image_analysis import (
     analyze_single_image_with_lmstudio,
     enhance_analysis_with_chart_data,
     perform_web_search_and_summarize,
+    summarize_deplot_with_lmstudio,
 )
 
 
@@ -71,6 +72,88 @@ def step1_add_ai_descriptions_with_chart_extraction(
 
     enhanced_pictures: List[Dict] = []
 
+    # --------------------[ Fallback helpers when AI is unavailable ]--------------------
+    def _safe_get_caption(pic: Dict) -> str:
+        """Return a best-effort caption/title string from picture metadata."""
+        try:
+            # Common locations: caption (str), captions (list of str), title, alt
+            if isinstance(pic.get("caption"), str) and pic["caption"].strip():
+                return pic["caption"].strip()
+            if isinstance(pic.get("captions"), list) and pic["captions"]:
+                text = " ".join([c for c in pic["captions"] if isinstance(c, str)])
+                if text.strip():
+                    return text.strip()
+            for key in ("title", "alt", "name"):
+                val = pic.get(key)
+                if isinstance(val, str) and val.strip():
+                    return val.strip()
+        except Exception:
+            pass
+        return ""
+
+    def _decode_image_dimensions(image_uri: Optional[str]) -> tuple[Optional[int], Optional[int]]:
+        """Decode base64 image to get (width, height). Returns (None, None) on failure."""
+        try:
+            if not (isinstance(image_uri, str) and image_uri.startswith("data:image")):
+                return None, None
+            header, encoded = image_uri.split(",", 1)
+            import base64, io
+            from PIL import Image
+            img = Image.open(io.BytesIO(base64.b64decode(encoded)))
+            return int(img.width), int(img.height)
+        except Exception:
+            return None, None
+
+    def _estimate_image_bytes(image_uri: Optional[str]) -> Optional[int]:
+        """Estimate bytes from base64 payload length (rough)."""
+        try:
+            if not (isinstance(image_uri, str) and "," in image_uri):
+                return None
+            encoded = image_uri.split(",", 1)[1]
+            # Base64 expansion ~ 4/3
+            return int(len(encoded) * 3 / 4)
+        except Exception:
+            return None
+
+    def _fallback_is_non_informative(image_uri: Optional[str], pic: Dict) -> bool:
+        """
+        Heuristic for non-informative images when AI analysis is unavailable:
+        - Very small dimensions (e.g., logos, icons)
+        - Very small payload size
+        - Empty/very short caption/title
+        """
+        caption = _safe_get_caption(pic)
+        width, height = _decode_image_dimensions(image_uri)
+        approx_bytes = _estimate_image_bytes(image_uri) or 0
+
+        very_small_dims = (isinstance(width, int) and isinstance(height, int) and (width <= 96 or height <= 96))
+        tiny_payload = approx_bytes > 0 and approx_bytes <= 10_000  # ~10 KB
+        caption_missing = len((caption or "").strip()) < 5
+
+        # Consider non-informative if at least two signals are present
+        score = sum([1 if very_small_dims else 0, 1 if tiny_payload else 0, 1 if caption_missing else 0])
+        return score >= 2
+
+    def _remove_chart_insight_from_text(text: Optional[str]) -> Optional[str]:
+        if not isinstance(text, str) or not text:
+            return text
+        # Remove common DePlot insight sentence if accidentally present in description
+        # Example: "Chart contains 15 data points with X-axis range from -1.50 to 600.00"
+        import re as _re
+        pattern = _re.compile(r"Chart contains\s+\d+\s+data points(?:\s+with X-axis range from\s+[-\d\.]+\s+to\s+[-\d\.]+)?", _re.IGNORECASE)
+        return pattern.sub("", text).strip()
+
+    def _sanitize_ai_analysis(ai: Dict) -> Dict:
+        if not isinstance(ai, dict):
+            return ai
+        image_type = (ai.get("image_type") or "").upper()
+        if image_type == "DATA_VISUALIZATION":
+            # Ensure description is never polluted by chart insight
+            ai["description"] = _remove_chart_insight_from_text(ai.get("description")) or ai.get("description") or ""
+            if "enriched_description" in ai:
+                ai["enriched_description"] = _remove_chart_insight_from_text(ai.get("enriched_description")) or ai.get("enriched_description")
+        return ai
+
     for i, pic_data in enumerate(data["pictures"], start=1):
         logger.info("Processing picture %s/%s...", i, original_count)
 
@@ -82,11 +165,33 @@ def step1_add_ai_descriptions_with_chart_extraction(
             enhanced_pictures.append(pic_data)
             continue
 
+        logger.info("Starting Gemma analysis for picture #%s...", i)
         ai_analysis = analyze_single_image_with_lmstudio(image_uri, lm_studio_url, model_name, i)
         if ai_analysis is None:
-            logger.warning("AI analysis failed for picture #%s, keeping original", i)
-            enhanced_pictures.append(pic_data)
-            continue
+            # AI unavailable (e.g., LM Studio offline). Apply deterministic fallback.
+            logger.warning("AI analysis failed for picture #%s. Applying fallback heuristics.", i)
+            if _fallback_is_non_informative(image_uri, pic_data):
+                logger.info("Fallback marked image #%s as NON-INFORMATIVE -> removing", i)
+                removed_count += 1
+                continue
+            else:
+                # Keep picture but attach a minimal ai_analysis stub to avoid REMOVED placeholders later
+                enhanced_pic = dict(pic_data)
+                enhanced_pic["ai_analysis"] = {
+                    "image_type": "UNKNOWN",
+                    "description": "AI analysis unavailable due to model connection; image retained for later analysis.",
+                    "analysis_timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "model_used": model_name,
+                    "will_replace_image": True,
+                }
+                enhanced_pictures.append(enhanced_pic)
+                processed_count += 1
+                if sleep_between_images_s > 0:
+                    try:
+                        time.sleep(sleep_between_images_s)
+                    except Exception:
+                        pass
+                continue
 
         if ai_analysis.get("is_non_informative", False):
             logger.info("Marking non-informative image #%s for removal", i)
@@ -106,13 +211,44 @@ def step1_add_ai_descriptions_with_chart_extraction(
         if enable_chart_extraction and ai_analysis.get("image_type") == "DATA_VISUALIZATION":
             logger.info("Attempting chart data extraction for picture #%s...", i)
             chart_data = extract_chart_data_with_deplot(image_uri, i)
-            if chart_data:
+            # If robust/standard parser succeeded
+            if chart_data and chart_data.get("parsing_success"):
                 chart_extracted_count += 1
                 enhanced_pic["ai_analysis"] = enhance_analysis_with_chart_data(
                     enhanced_pic["ai_analysis"], chart_data
                 )
+                # Additional safeguard: if datasets missing but raw_table available, try LLM summarization
+                cde = enhanced_pic["ai_analysis"].get("chart_data_extraction", {})
+                if not cde.get("datasets") and chart_data.get("raw_table"):
+                    logger.info("Datasets missing after parsing; summarizing DePlot output with LLM for picture #%s...", i)
+                    llm_chart = summarize_deplot_with_lmstudio(chart_data["raw_table"], lm_studio_url, model_name)
+                    if llm_chart and llm_chart.get("parsing_success"):
+                        enhanced_pic["ai_analysis"] = enhance_analysis_with_chart_data(
+                            enhanced_pic["ai_analysis"], llm_chart
+                        )
+                    else:
+                        enhanced_pic["ai_analysis"].setdefault("chart_data_extraction", {})
+                        enhanced_pic["ai_analysis"]["chart_data_extraction"].update({
+                            "extraction_success": False,
+                            "extraction_method": "deplot+llm_summarization",
+                        })
+            # If returned raw_table (parsing failed), try LLM summarization with Gemma via LM Studio
+            elif chart_data and not chart_data.get("parsing_success") and chart_data.get("raw_table"):
+                logger.info("Parsing failed; summarizing DePlot output with LLM for picture #%s...", i)
+                llm_chart = summarize_deplot_with_lmstudio(chart_data["raw_table"], lm_studio_url, model_name)
+                if llm_chart and llm_chart.get("parsing_success"):
+                    chart_extracted_count += 1
+                    enhanced_pic["ai_analysis"] = enhance_analysis_with_chart_data(
+                        enhanced_pic["ai_analysis"], llm_chart
+                    )
+                else:
+                    enhanced_pic["ai_analysis"].setdefault("chart_data_extraction", {})
+                    enhanced_pic["ai_analysis"]["chart_data_extraction"].update({
+                        "extraction_success": False,
+                        "extraction_method": "deplot+llm_summarization",
+                    })
             else:
-                # If DePlot failed but the image is likely a line chart, still insert a placeholder to mark expectation
+                # Both parsing and LLM summarization unavailable
                 enhanced_pic["ai_analysis"].setdefault("chart_data_extraction", {})
                 enhanced_pic["ai_analysis"]["chart_data_extraction"].update({
                     "extraction_success": False,
@@ -132,6 +268,9 @@ def step1_add_ai_descriptions_with_chart_extraction(
                     enhanced_pic["ai_analysis"]["enriched_description"] = (
                         f"{original_desc} Additional context: {web_summary.get('ai_summary', '')}"
                     )
+
+        # Final sanitation to guarantee DePlot insight never overwrites descriptions
+        enhanced_pic["ai_analysis"] = _sanitize_ai_analysis(enhanced_pic.get("ai_analysis", {}))
 
         enhanced_pictures.append(enhanced_pic)
         processed_count += 1
@@ -202,26 +341,75 @@ def step2_remove_all_images(
         logger.warning("No 'pictures' key found in: %s", json_path)
         return False, None
 
+    def remove_keys_recursive(obj: Any, keys_to_remove: List[str]) -> tuple[Any, int]:
+        """
+        Recursively remove any keys in keys_to_remove from nested dict/list structures.
+        Returns (sanitized_obj, num_removed_keys)
+        """
+        removed = 0
+        if isinstance(obj, dict):
+            new_dict = {}
+            for k, v in obj.items():
+                if k in keys_to_remove:
+                    removed += 1
+                    continue
+                sanitized_v, rem = remove_keys_recursive(v, keys_to_remove)
+                removed += rem
+                new_dict[k] = sanitized_v
+            return new_dict, removed
+        if isinstance(obj, list):
+            new_list = []
+            for item in obj:
+                sanitized_item, rem = remove_keys_recursive(item, keys_to_remove)
+                removed += rem
+                new_list.append(sanitized_item)
+            return new_list, removed
+        return obj, 0
+
+    def count_keys_recursive(obj: Any, key_name: str) -> int:
+        if isinstance(obj, dict):
+            return (1 if key_name in obj else 0) + sum(count_keys_recursive(v, key_name) for v in obj.values())
+        if isinstance(obj, list):
+            return sum(count_keys_recursive(x, key_name) for x in obj)
+        return 0
+
     original_count = len(data["pictures"])
     nlp_ready_pictures: List[Dict] = []
     removed_images_count = 0
 
+    keys_to_strip = [
+        "image",
+        "image_data",
+        "imageData",
+        "thumbnail",
+        "page_image",
+        "pageImage",
+    ]
+
     for i, pic_data in enumerate(data["pictures"], start=1):
-        nlp_pic_data: Dict = {}
-        for key, value in pic_data.items():
-            if key != "image":
-                nlp_pic_data[key] = value
-            else:
-                removed_images_count += 1
-        if "ai_analysis" not in nlp_pic_data:
-            nlp_pic_data["ai_analysis"] = {
+        # Remove nested image-related keys recursively
+        sanitized_pic, removed = remove_keys_recursive(pic_data, keys_to_strip)
+        removed_images_count += removed
+        if "ai_analysis" not in sanitized_pic:
+            sanitized_pic["ai_analysis"] = {
                 "description": "Image was removed - no AI description available",
                 "image_type": "REMOVED",
                 "will_replace_image": True,
             }
-        nlp_ready_pictures.append(nlp_pic_data)
+        nlp_ready_pictures.append(sanitized_pic)
 
     data["pictures"] = nlp_ready_pictures
+
+    # Also remove root-level image containers if present
+    for root_key in ["resources", "page_images", "pageImages", "images"]:
+        if root_key in data:
+            try:
+                del data[root_key]
+            except Exception:
+                pass
+
+    # Post-removal verification (deep)
+    remaining_image_keys = count_keys_recursive(data.get("pictures", []), "image")
 
     nlp_metadata = {
         "original_picture_count": original_count,
@@ -231,6 +419,7 @@ def step2_remove_all_images(
         "nlp_ready": True,
         "step2_timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
         "version": "NLP_ready_no_images",
+        "remaining_image_keys": remaining_image_keys,
     }
     data["nlp_ready_metadata"] = nlp_metadata
 
@@ -244,9 +433,10 @@ def step2_remove_all_images(
         with open(output_json_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
         logger.info(
-            "Step 2 complete. NLP-ready JSON saved to: %s (images removed: %s)",
+            "Step 2 complete. NLP-ready JSON saved to: %s (removed image-key occurrences: %s, remaining image keys: %s)",
             output_json_path,
             removed_images_count,
+            remaining_image_keys,
         )
         return True, str(output_json_path)
     except Exception:

@@ -80,8 +80,14 @@ def extract_chart_data_with_deplot(image_uri: str, pic_number: int) -> Optional[
         if parsed_data:
             logger.info("Successfully extracted %s data points", parsed_data.get("data_points_count", 0))
             return parsed_data
-        logger.warning("Failed to parse DePlot output for picture #%s", pic_number)
-        return None
+
+        # If parsing failed, still return raw table so caller may attempt LLM summarization
+        logger.warning("Failed to parse DePlot output for picture #%s; returning raw table for LLM summarization", pic_number)
+        return {
+            "parsing_success": False,
+            "raw_table": table_string,
+            "extraction_method": "google/deplot",
+        }
     except Exception as exc:
         logger.error("Chart data extraction failed for picture #%s: %s", pic_number, exc)
         return None
@@ -189,6 +195,13 @@ def parse_deplot_output(table_string: str) -> Optional[Dict]:
         headers = token_lines[header_idx]
         if len(headers) < 2:
             return None
+        # If data rows have more columns than header names, extend headers with generic names
+        try:
+            max_cols = max(len(row) for row in token_lines)
+            if len(headers) < max_cols:
+                headers = headers + [f"col_{i}" for i in range(len(headers), max_cols)]
+        except Exception:
+            pass
 
         # If headers still contain obvious numeric-only strings, accept but will handle downstream
         # Build datasets
@@ -224,7 +237,7 @@ def parse_deplot_output(table_string: str) -> Optional[Dict]:
                     y_val = None
                 if y_val is None:
                     continue
-                datasets[name].append((x_val, y_val))
+                datasets.setdefault(name, []).append((x_val, y_val))
 
         # Remove empty datasets
         datasets = {k: v for k, v in datasets.items() if v}
