@@ -19,3 +19,81 @@ Line_Chart_Extract.py
 # Review files
 Review.rar
 Review/
+
+# ===== DATA FILES - IGNORE ALL PROCESSING RESULTS =====
+
+# PDF files (input documents)
+*.pdf
+**/*.pdf
+
+# JSON files (all processing outputs)
+*.json
+**/*.json
+
+# HTML files (analysis reports)
+*.html
+**/*.html
+
+# Verification and analysis reports
+*_verification_report.txt
+**/*_verification_report.txt
+
+# ===== SPECIFIC OUTPUT DIRECTORIES =====
+
+# PDF Analyzer App outputs
+PDF_Analyzer_App/output/
+PDF_Analyzer_App/output/*
+
+# ChartGemma results
+chartgemma_results/
+chartgemma_results/*
+
+# LM Studio conversion outputs
+output_lmstudio_conversion/
+output_lmstudio_conversion/*
+
+# Scratch and testing outputs
+scratch/
+scratch/*
+
+# Results directory
+results/
+results/*
+
+# Sample Line Chart (test images)
+Sample Line Chart/
+Sample Line Chart/*
+
+# ===== TEMPORARY AND CACHE FILES =====
+
+# Python cache
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Jupyter notebook checkpoints
+.ipynb_checkpoints/
+**/.ipynb_checkpoints/
+
+# Environment files
+.env
+.venv/
+venv/
+env/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# ===== LOGS AND TEMP FILES =====
+*.log
+*.tmp
+*.temp
