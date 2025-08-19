@@ -11,6 +11,8 @@ A containerized PDF analysis system that extracts, analyzes, and describes image
 
 - **📄 Smart PDF Processing**: Convert PDFs to structured JSON using Docling SmolDocling VLM Pipeline
 - **🖼️ AI Image Analysis**: Intelligent classification and description of document images
+- **🎯 ChartGemma Integration**: Advanced chart analysis with specialized questioning for different chart types
+- **📊 DePlot Chart Extraction**: Robust chart data extraction with AI verification and enhanced parsing
 - **🔍 Web-Enhanced Context**: Automatic web search for conceptual images with AI-generated summaries
 - **🚫 No GUI Required**: Runs entirely in command-line interface
 - **🐳 Containerized**: Ready-to-deploy Docker solution
@@ -150,6 +152,12 @@ python main.py document.pdf
 
 # Disable web search (faster processing)
 python main.py document.pdf --no-web-search
+
+# Disable chart data extraction
+python main.py document.pdf --no-chart-extraction
+
+# Disable ChartGemma analysis (use DePlot only)
+python main.py document.pdf --no-chartgemma
 
 # Keep images in final output
 python main.py document.pdf --keep-images

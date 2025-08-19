@@ -26,6 +26,8 @@ A comprehensive tool for extracting, analyzing, and enhancing images from PDF do
 ### 🖼️ Intelligent Image Analysis
 - **🔍 Smart Classification**: Automatically identifies informative vs. non-informative images
 - **📊 Type Detection**: Distinguishes between data visualizations and conceptual diagrams
+- **🎯 ChartGemma Integration**: Advanced chart analysis with specialized questioning for different chart types
+- **📈 DePlot Chart Extraction**: Robust chart data extraction with AI verification
 - **🎯 Logo Filtering**: Automatically skips publisher logos and watermarks
 - **📝 Comprehensive Descriptions**: Generates detailed text descriptions for NLP processing
 
@@ -110,6 +112,8 @@ Choose your processing method:
 ### 3. 🎛️ Configure Options
 
 - **🌐 Enable Web Search**: Enhance conceptual images with web context
+- **📊 Enable Chart Data Extraction**: Extract chart data using DePlot + AI verification
+- **🎯 Enable ChartGemma Analysis**: Use specialized ChartGemma model for advanced chart understanding
 - **📝 Generate NLP-Ready JSON**: Create version without images for text processing
 - **📁 Output Directory**: Set single file output or batch base directory
 
@@ -120,9 +124,13 @@ Choose your processing method:
 Click "🚀 Start Processing" to begin analysis. The system will:
 
 1. **Convert/Load**: Process PDF or load JSON
-2. **Analyze Images**: AI classification and description
-3. **Web Enhancement**: Search for additional context (if enabled)
-4. **Generate Outputs**: Create enhanced and NLP-ready versions
+2. **Load ChartGemma**: Initialize advanced chart analysis model (if enabled)
+3. **Analyze Images**: AI classification and description with multi-level analysis:
+   - Gemma AI visual analysis
+   - DePlot chart data extraction (for DATA_VISUALIZATION)
+   - ChartGemma specialized analysis (for DATA_VISUALIZATION)
+4. **Web Enhancement**: Search for additional context (if enabled)
+5. **Generate Outputs**: Create enhanced and NLP-ready versions
 
 #### Batch Processing
 

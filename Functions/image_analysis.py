@@ -13,7 +13,13 @@ from typing import Dict, List, Optional
 import json
 
 import requests
-from duckduckgo_search import DDGS
+try:
+    from ddgs import DDGS
+except ImportError:
+    try:
+        from duckduckgo_search import DDGS
+    except ImportError:
+        DDGS = None
 
 
 logger = logging.getLogger(__name__)
@@ -140,12 +146,17 @@ def perform_web_search_and_summarize(
         if not search_query:
             return None
 
+        if DDGS is None:
+            logger.warning("[Web] ❌ DDGS package not available. Please install: pip install ddgs")
+            return None
+
         logger.info("[Web] ▶ DDGS search start | query='%s'", search_query)
         ddgs = DDGS()
         results = ddgs.text(search_query, max_results=max_sources)
         results = list(results) if results else []
         logger.info("[Web] ◀ DDGS results | count=%s", len(results))
         if not results:
+            logger.warning("[Web] ⚠️ No search results found for query: '%s'", search_query)
             return None
 
         sources_text = ""
@@ -239,13 +250,6 @@ def enhance_analysis_with_chart_data(ai_analysis: Dict, chart_data: Dict) -> Dic
         enhanced["chart_insight"] = data_insight
 
     return enhanced
-
-
-__all__ = [
-    "analyze_single_image_with_lmstudio",
-    "perform_web_search_and_summarize",
-    "enhance_analysis_with_chart_data",
-]
 
 
 def summarize_deplot_with_lmstudio(
@@ -346,4 +350,152 @@ def summarize_deplot_with_lmstudio(
         return None
 
 
+def extract_chart_with_image_and_deplot_verification(
+    image_uri: str,
+    raw_deplot_output: str,
+    lm_studio_url: str,
+    model_name: str,
+    pic_number: int,
+    *,
+    max_tokens: int = 1000,
+    temperature: float = 0.1,
+) -> Optional[Dict]:
+    """
+    Two-step chart extraction: Use DePlot output as reference, but let AI model
+    analyze the original image and produce the final structured table.
+    
+    Args:
+        image_uri: Base64 image data URI
+        raw_deplot_output: Raw DePlot extraction result
+        lm_studio_url: LM Studio API endpoint
+        model_name: Model identifier
+        pic_number: Picture number for logging
+        
+    Returns:
+        Dict with structured chart data or None
+    """
+    if not image_uri or not raw_deplot_output:
+        return None
+        
+    # Enhanced prompt that combines image analysis with DePlot verification
+    enhanced_prompt = f"""You are analyzing a chart image. I have already extracted some data using DePlot model, but the format might not be perfect. Please look at the image and the DePlot result below, then provide a clean, structured table.
+
+DePlot extracted data:
+{raw_deplot_output}
+
+Instructions:
+1. Look at the chart image carefully
+2. Identify the X-axis labels (these might be categorical like model names, or numeric values)
+3. Identify all the data series/lines in the chart
+4. Create a structured table where each row represents one X-axis point and columns represent different metrics/series
+
+Please return ONLY a JSON object with this exact structure:
+{{
+    "x_axis_label": "name of x-axis (e.g., 'model', 'time', etc.)",
+    "x_categories": ["list", "of", "x-axis", "labels"] (if categorical) or null (if numeric),
+    "series_names": ["metric1", "metric2", "metric3", ...],
+    "data_table": [
+        {{"x": "x_value_1", "metric1": value1, "metric2": value2, ...}},
+        {{"x": "x_value_2", "metric1": value1, "metric2": value2, ...}},
+        ...
+    ],
+    "chart_type": "bar_chart" or "line_chart",
+    "total_data_points": number
+}}
+
+Focus on accuracy and make sure the X-axis values and series data correspond correctly to what you see in the image."""
+
+    payload = {
+        "model": model_name,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": enhanced_prompt},
+                    {"type": "image_url", "image_url": {"url": image_uri}}
+                ]
+            }
+        ],
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+    }
+
+    try:
+        logger.info("[Chart-ImageVerify] ▶ Analyzing image + DePlot | pic#%s | model='%s'", pic_number, model_name)
+        response = requests.post(lm_studio_url, json=payload, timeout=300)
+        response.raise_for_status()
+        content = response.json()["choices"][0]["message"]["content"].strip()
+        logger.info("[Chart-ImageVerify] ◀ Response received | pic#%s | chars=%s", pic_number, len(content or ""))
+        
+        # Extract JSON from response
+        start = content.find("{")
+        end = content.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            json_str = content[start : end + 1]
+            parsed = json.loads(json_str)
+            
+            # Convert to our internal format
+            x_label = parsed.get("x_axis_label", "X")
+            x_categories = parsed.get("x_categories")
+            series_names = parsed.get("series_names", [])
+            data_table = parsed.get("data_table", [])
+            chart_type = parsed.get("chart_type", "unknown")
+            
+            # Build datasets in the format expected by the rest of the system
+            datasets = {}
+            total_points = 0
+            
+            for series_name in series_names:
+                datasets[series_name] = []
+                
+            for i, row in enumerate(data_table):
+                x_val = i  # Use index as X coordinate for categorical data
+                for series_name in series_names:
+                    if series_name in row:
+                        try:
+                            y_val = float(row[series_name])
+                            datasets[series_name].append((x_val, y_val))
+                            total_points += 1
+                        except (ValueError, TypeError):
+                            continue
+            
+            # Remove empty datasets
+            datasets = {k: v for k, v in datasets.items() if v}
+            
+            if not datasets:
+                logger.warning("[Chart-ImageVerify] No valid datasets extracted from pic#%s", pic_number)
+                return None
+                
+            result = {
+                "chart_type": chart_type,
+                "x_axis_label": x_label,
+                "y_axis_labels": list(datasets.keys()),
+                "datasets": datasets,
+                "data_points_count": total_points,
+                "x_categories": x_categories,
+                "raw_table": raw_deplot_output,
+                "extraction_method": "image+deplot_verification",
+                "parsing_success": True,
+            }
+            
+            logger.info(
+                "[Chart-ImageVerify] ✔ Extracted | pic#%s | series=%s | points=%s | x_cats=%s",
+                pic_number, len(datasets), total_points, len(x_categories) if x_categories else 0
+            )
+            return result
+            
+    except Exception as exc:
+        logger.error("[Chart-ImageVerify] Failed for pic#%s: %s", pic_number, exc)
+        return None
+    
+    return None
+
+
+__all__ = [
+    "analyze_single_image_with_lmstudio",
+    "perform_web_search_and_summarize",
+    "enhance_analysis_with_chart_data",
+    "summarize_deplot_with_lmstudio",
+    "extract_chart_with_image_and_deplot_verification",
+]
 

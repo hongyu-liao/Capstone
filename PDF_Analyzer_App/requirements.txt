@@ -15,8 +15,12 @@ openpyxl>=3.1.0
 # Image processing
 Pillow>=9.5.0
 
-# Web searching (optional but recommended)
-duckduckgo-search>=3.8.0
+# Chart data extraction with DePlot (optional but recommended for data visualization)
+transformers>=4.30.0
+torch>=2.0.0
+
+# Web searching (updated package name)
+ddgs>=0.9.0
 
 # Google GenAI SDK for Gemini with web search
 google-genai>=0.2.0

@@ -154,6 +154,20 @@ def configure_sidebar():
         key="enable_web_search"
     )
     
+    enable_chart_extraction = st.sidebar.checkbox(
+        "Enable Chart Data Extraction",
+        value=True,
+        help="Extract chart data using DePlot + AI verification for data visualization images",
+        key="enable_chart_extraction"
+    )
+    
+    enable_chartgemma = st.sidebar.checkbox(
+        "Enable ChartGemma Analysis",
+        value=True,
+        help="Use ChartGemma model for advanced chart analysis and specialized chart questioning",
+        key="enable_chartgemma"
+    )
+    
     generate_nlp_ready = st.sidebar.checkbox(
         "Generate NLP-Ready JSON",
         value=False,
@@ -709,6 +723,16 @@ def process_single_file_batch(file_type, file_path, file_name, output_dir, confi
             pdf_processor = PDFProcessor(config)
             image_analyzer = ImageAnalyzer(config)
             
+            # Load ChartGemma model if enabled
+            if config.get('enable_chartgemma', True):
+                status_text.text("Loading ChartGemma model...")
+                progress_bar.progress(10)
+                chartgemma_loaded = image_analyzer.load_chartgemma_model()
+                if not chartgemma_loaded:
+                    st.warning("⚠️ ChartGemma model loading failed. Chart analysis will use DePlot only.")
+                else:
+                    st.success("✅ ChartGemma model loaded successfully!")
+            
             # Step 1: Convert PDF to JSON
             status_text.text("Step 1/4: Converting PDF to JSON...")
             progress_bar.progress(25)
@@ -735,6 +759,16 @@ def process_single_file_batch(file_type, file_path, file_name, output_dir, confi
             json_path = file_path
             image_analyzer = ImageAnalyzer(config)
             
+            # Load ChartGemma model if enabled
+            if config.get('enable_chartgemma', True):
+                status_text.text("Loading ChartGemma model...")
+                progress_bar.progress(10)
+                chartgemma_loaded = image_analyzer.load_chartgemma_model()
+                if not chartgemma_loaded:
+                    st.warning("⚠️ ChartGemma model loading failed. Chart analysis will use DePlot only.")
+                else:
+                    st.success("✅ ChartGemma model loaded successfully!")
+            
             # Use original filename (without extension) as base filename
             # This preserves the complete original name without stripping suffixes
             base_filename = Path(file_name).stem
@@ -756,7 +790,9 @@ def process_single_file_batch(file_type, file_path, file_name, output_dir, confi
         
         analysis_results = image_analyzer.analyze_images_from_json(
             json_path, 
-            config['enable_web_search']
+            config['enable_web_search'],
+            config['enable_chart_extraction'],
+            config['enable_chartgemma']
         )
         
         if not analysis_results:
@@ -1108,6 +1144,129 @@ def display_image_analysis(result, image_num):
     if result.get('original_caption') and result['original_caption'] != "No caption":
         st.markdown(f"**📝 Original Caption:** {result['original_caption']}")
     
+    # Display chart data extraction results if available
+    if 'chart_data_extraction' in result:
+        chart_data = result['chart_data_extraction']
+        st.markdown("**📊 Chart Data Extraction:**")
+        
+        if chart_data.get('parsing_success'):
+            # Successfully extracted chart data
+            extraction_method = chart_data.get('extraction_method', 'unknown')
+            if extraction_method == 'image+deplot_verification':
+                st.success("✅ Enhanced extraction using DePlot + AI verification")
+            else:
+                st.info(f"📈 Extracted using: {extraction_method}")
+            
+            # Display chart metadata
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                chart_type = chart_data.get('chart_type', 'unknown')
+                st.metric("Chart Type", chart_type.replace('_', ' ').title())
+            with col2:
+                data_points = chart_data.get('data_points_count', 0)
+                st.metric("Data Points", data_points)
+            with col3:
+                series_count = len(chart_data.get('datasets', {}))
+                st.metric("Data Series", series_count)
+            
+            # Display extracted data table
+            datasets = chart_data.get('datasets', {})
+            x_categories = chart_data.get('x_categories', [])
+            x_label = chart_data.get('x_axis_label', 'X')
+            
+            if datasets:
+                with st.expander("📈 View Extracted Data Table", expanded=True):
+                    # Create unified table like in the notebook
+                    import pandas as pd
+                    
+                    # Build unified data structure
+                    unified_data = {}
+                    all_metrics = set(datasets.keys())
+                    
+                    for metric_name, points in datasets.items():
+                        for x_idx, y_val in points:
+                            x_key = int(x_idx)
+                            if x_key not in unified_data:
+                                unified_data[x_key] = {}
+                            unified_data[x_key][metric_name] = y_val
+                    
+                    # Convert to DataFrame for display
+                    df_data = []
+                    for x_idx in sorted(unified_data.keys()):
+                        row = {}
+                        # X column: use category name if available
+                        if x_categories and 0 <= x_idx < len(x_categories):
+                            row[x_label] = x_categories[x_idx]
+                        else:
+                            row[x_label] = str(x_idx)
+                        
+                        # Add metric columns
+                        for metric in sorted(all_metrics):
+                            row[metric] = unified_data[x_idx].get(metric, '-')
+                        
+                        df_data.append(row)
+                    
+                    if df_data:
+                        df = pd.DataFrame(df_data)
+                        st.dataframe(df, use_container_width=True)
+                        
+                        # Show chart insight if available
+                        insight = chart_data.get('chart_insight')
+                        if insight:
+                            st.markdown(f"**💡 Chart Insight:** {insight}")
+            
+            # Show raw DePlot output if available
+            raw_table = chart_data.get('raw_table')
+            if raw_table:
+                with st.expander("🔍 View Raw DePlot Output"):
+                    st.code(raw_table, language="text")
+                    
+        else:
+            # Chart extraction failed
+            extraction_method = chart_data.get('extraction_method', 'unknown')
+            st.warning(f"⚠️ Chart data extraction failed using: {extraction_method}")
+            
+            # Show raw output if available
+            raw_table = chart_data.get('raw_table')
+            if raw_table:
+                with st.expander("🔍 View Raw DePlot Output (Failed Parsing)"):
+                    st.code(raw_table, language="text")
+        
+        # Show extraction timestamp
+        extraction_time = chart_data.get('extraction_timestamp', 'Unknown')
+        st.caption(f"📊 Chart extraction: {extraction_time}")
+
+    # Display ChartGemma analysis if available
+    if 'chartgemma_analysis' in result:
+        chartgemma_data = result['chartgemma_analysis']
+        st.markdown("**🎯 ChartGemma Advanced Analysis:**")
+        
+        if 'error' in chartgemma_data:
+            st.error(f"❌ ChartGemma analysis failed: {chartgemma_data['error']}")
+        else:
+            st.success("✅ Enhanced chart understanding using ChartGemma specialized model")
+            
+            # Display chart type detected
+            chart_type = chartgemma_data.get('chart_type_detected', 'unknown')
+            if chart_type != 'unknown':
+                st.markdown(f"**Chart Type:** `{chart_type}`")
+            
+            # Display the specialized question asked
+            question = chartgemma_data.get('question', '')
+            if question:
+                with st.expander("📋 Specialized Question Asked"):
+                    st.write(question)
+            
+            # Display ChartGemma response
+            response = chartgemma_data.get('response', '')
+            if response:
+                with st.expander("🤖 ChartGemma Analysis Response", expanded=True):
+                    st.write(response)
+            
+            # Show analysis timestamp
+            analysis_time = chartgemma_data.get('analysis_timestamp', 'Unknown')
+            st.caption(f"🎯 ChartGemma analysis: {analysis_time}")
+
     # Display web search results if available
     if 'web_context' in result:
         web_context = result['web_context']
@@ -1725,6 +1884,8 @@ def get_processing_config():
         'api_key': api_key,
         'lm_studio_url': st.session_state.get('lm_studio_url', 'http://localhost:1234/v1/chat/completions'),
         'enable_web_search': st.session_state.get('enable_web_search', True),
+        'enable_chart_extraction': st.session_state.get('enable_chart_extraction', True),
+        'enable_chartgemma': st.session_state.get('enable_chartgemma', True),
         'generate_nlp_ready': st.session_state.get('generate_nlp_ready', False),
         'max_tokens': st.session_state.get('max_tokens', 700)
     }

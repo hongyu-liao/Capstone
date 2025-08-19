@@ -8,15 +8,39 @@ import time
 from typing import List, Dict, Optional, Any
 import os # Added for os.path.join
 
-# Try to import duckduckgo_search, fallback gracefully
+# Try to import web search package, fallback gracefully
 try:
-    from duckduckgo_search import DDGS
+    from ddgs import DDGS
     HAS_DDGS = True
 except ImportError:
-    HAS_DDGS = False
-    logging.warning("duckduckgo_search not available. Web search will be disabled.")
+    try:
+        from duckduckgo_search import DDGS
+        HAS_DDGS = True
+    except ImportError:
+        HAS_DDGS = False
+        DDGS = None
+        logging.warning("Web search package not available. Web search will be disabled.")
 
 from api_manager import APIManager
+
+# Import chart extraction dependencies
+try:
+    from transformers import Pix2StructProcessor, Pix2StructForConditionalGeneration
+    from PIL import Image
+    import io
+    HAS_DEPLOT = True
+except ImportError:
+    HAS_DEPLOT = False
+    logging.warning("Chart extraction dependencies not available. DePlot functionality will be disabled.")
+
+# Import ChartGemma dependencies
+try:
+    from transformers import AutoProcessor, PaliGemmaForConditionalGeneration
+    import torch
+    HAS_CHARTGEMMA = True
+except ImportError:
+    HAS_CHARTGEMMA = False
+    logging.warning("ChartGemma dependencies not available. Advanced chart analysis will be disabled.")
 
 class ImageAnalyzer:
     """Handles image extraction, analysis, and web search enhancement"""
@@ -31,6 +55,11 @@ class ImageAnalyzer:
         self.config = config
         self.logger = logging.getLogger(__name__)
         self.api_manager = APIManager(config)
+        
+        # ChartGemma components
+        self.chartgemma_model = None
+        self.chartgemma_processor = None
+        self.chartgemma_device = None
         
     def _safe_get_caption(self, pic_data: Dict) -> str:
         """
@@ -51,13 +80,14 @@ class ImageAnalyzer:
         except (IndexError, TypeError, AttributeError):
             return "No caption"
         
-    def analyze_images_from_json(self, json_path: str, enable_web_search: bool = True) -> List[Dict]:
+    def analyze_images_from_json(self, json_path: str, enable_web_search: bool = True, enable_chart_extraction: bool = True, enable_chartgemma: bool = True) -> List[Dict]:
         """
         Analyze all images from a Docling-generated JSON file
         
         Args:
             json_path (str): Path to the JSON file
             enable_web_search (bool): Whether to perform web search for conceptual images
+            enable_chart_extraction (bool): Whether to extract chart data for data visualization images
             
         Returns:
             List[Dict]: List of analysis results for each image
@@ -90,7 +120,7 @@ class ImageAnalyzer:
             self.logger.info(f"Analyzing image {i+1}/{len(pictures)}")
             
             try:
-                result = self._analyze_single_image(pic_data, i+1, enable_web_search)
+                result = self._analyze_single_image(pic_data, i+1, enable_web_search, enable_chart_extraction, enable_chartgemma)
                 
                 # Skip non-informative images completely (like original notebook)
                 if result is None:
@@ -133,7 +163,7 @@ class ImageAnalyzer:
         self.logger.info(f"Completed analysis of {len(analysis_results)} informative images (skipped non-informative ones)")
         return analysis_results
     
-    def _analyze_single_image(self, pic_data: Dict, pic_number: int, enable_web_search: bool) -> Optional[Dict]:
+    def _analyze_single_image(self, pic_data: Dict, pic_number: int, enable_web_search: bool, enable_chart_extraction: bool = True, enable_chartgemma: bool = True) -> Optional[Dict]:
         """
         Analyze a single image using the configured AI provider
         
@@ -141,6 +171,7 @@ class ImageAnalyzer:
             pic_data (Dict): Picture data from JSON
             pic_number (int): Picture number for logging
             enable_web_search (bool): Whether to perform web search
+            enable_chart_extraction (bool): Whether to extract chart data for data visualization images
             
         Returns:
             Optional[Dict]: Analysis result or None if image is non-informative (logo/watermark)
@@ -197,6 +228,40 @@ class ImageAnalyzer:
             'ai_provider': self.config.get('ai_provider', 'Unknown')
         }
         
+        # Handle chart data extraction for DATA_VISUALIZATION images
+        if enable_chart_extraction and ai_analysis.get('image_type') == 'DATA_VISUALIZATION':
+            self.logger.info(f"📊 Extracting chart data for picture {pic_number}")
+            
+            # Step 1: Get raw DePlot output
+            chart_data = self._extract_chart_data_with_deplot(image_uri, pic_number)
+            
+            if chart_data and chart_data.get("raw_table"):
+                # Step 2: Use image + DePlot verification for better accuracy
+                self.logger.info(f"🔍 Verifying chart data with image analysis for picture {pic_number}")
+                verified_chart = self._extract_chart_with_image_verification(
+                    image_uri, chart_data["raw_table"], pic_number
+                )
+                
+                if verified_chart and verified_chart.get("parsing_success"):
+                    result['chart_data_extraction'] = verified_chart
+                    self.logger.info(f"✅ Successfully verified chart data for picture {pic_number}")
+                else:
+                    # Fallback to raw DePlot output
+                    self.logger.info(f"⚠️ Image verification failed, using raw DePlot for picture {pic_number}")
+                    result['chart_data_extraction'] = {
+                        "extraction_success": False,
+                        "raw_table": chart_data["raw_table"],
+                        "extraction_method": "deplot_only",
+                        "extraction_timestamp": chart_data.get("extraction_timestamp")
+                    }
+            else:
+                # DePlot extraction failed
+                result['chart_data_extraction'] = {
+                    "extraction_success": False,
+                    "extraction_method": "deplot_failed",
+                    "extraction_timestamp": time.strftime('%Y-%m-%d %H:%M:%S')
+                }
+
         # Handle web search results
         if 'web_sources' in ai_analysis and ai_analysis['web_sources']:
             # Native web search was used and returned sources
@@ -229,6 +294,18 @@ class ImageAnalyzer:
             if web_context:
                 result['web_context'] = web_context
                 result['search_keywords'] = ai_analysis['search_keywords']
+        
+        # ChartGemma analysis for DATA_VISUALIZATION images
+        if (enable_chartgemma and 
+            ai_analysis.get('image_type') == 'DATA_VISUALIZATION' and
+            HAS_CHARTGEMMA and self.chartgemma_model is not None):
+            
+            chart_type = result.get('chart_data_extraction', {}).get('chart_type', 'unknown')
+            chartgemma_result = self.analyze_chart_with_chartgemma(image_uri, chart_type, pic_number)
+            
+            if chartgemma_result:
+                result['chartgemma_analysis'] = chartgemma_result
+                self.logger.info(f"✅ Added ChartGemma analysis for picture {pic_number}")
         
         return result
     
@@ -405,8 +482,8 @@ Format your response as a comprehensive description that combines visual analysi
         Returns:
             Optional[Dict]: Web search results and summary or None if failed
         """
-        if not HAS_DDGS:
-            self.logger.warning("DuckDuckGo search not available")
+        if not HAS_DDGS or DDGS is None:
+            self.logger.warning(f"⚠️ Web search package not available for picture {pic_number}. Please install: pip install ddgs")
             return None
         
         try:
@@ -488,6 +565,158 @@ Summary:"""
         except Exception as e:
             self.logger.error(f"Failed to generate search summary: {e}")
             return "Failed to generate summary from search results."
+    
+    def _extract_chart_data_with_deplot(self, image_uri: str, pic_number: int) -> Optional[Dict]:
+        """
+        Extract chart data using DePlot model
+        
+        Args:
+            image_uri (str): Base64 image data URI
+            pic_number (int): Picture number for logging
+            
+        Returns:
+            Optional[Dict]: Chart extraction results or None if failed
+        """
+        if not HAS_DEPLOT:
+            self.logger.warning(f"DePlot not available for chart extraction on picture {pic_number}")
+            return None
+            
+        try:
+            if not image_uri or not image_uri.startswith("data:image"):
+                self.logger.warning(f"Invalid image URI format for picture {pic_number}")
+                return None
+
+            header, encoded = image_uri.split(",", 1)
+            image_data = base64.b64decode(encoded)
+            image = Image.open(io.BytesIO(image_data))
+
+            self.logger.info(f"Extracting chart data from picture {pic_number} using DePlot...")
+            processor = Pix2StructProcessor.from_pretrained("google/deplot")
+            model = Pix2StructForConditionalGeneration.from_pretrained("google/deplot")
+
+            prompt = "Generate underlying data table of the figure below:"
+            inputs = processor(images=image, text=prompt, return_tensors="pt")
+            predictions = model.generate(**inputs, max_new_tokens=512)
+            table_string = processor.decode(predictions[0], skip_special_tokens=True)
+
+            return {
+                "raw_table": table_string,
+                "extraction_method": "google/deplot",
+                "extraction_timestamp": time.strftime('%Y-%m-%d %H:%M:%S')
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Chart data extraction failed for picture {pic_number}: {e}")
+            return None
+    
+    def _extract_chart_with_image_verification(self, image_uri: str, raw_deplot_output: str, pic_number: int) -> Optional[Dict]:
+        """
+        Enhanced chart extraction using image + DePlot verification
+        
+        Args:
+            image_uri (str): Base64 image data URI
+            raw_deplot_output (str): Raw DePlot extraction result
+            pic_number (int): Picture number for logging
+            
+        Returns:
+            Optional[Dict]: Verified chart data or None if failed
+        """
+        if not image_uri or not raw_deplot_output:
+            return None
+            
+        try:
+            # Enhanced prompt for image + DePlot verification
+            enhanced_prompt = f"""You are analyzing a chart image. I have already extracted some data using DePlot model, but the format might not be perfect. Please look at the image and the DePlot result below, then provide a clean, structured table.
+
+DePlot extracted data:
+{raw_deplot_output}
+
+Instructions:
+1. Look at the chart image carefully
+2. Identify the X-axis labels (these might be categorical like model names, or numeric values)
+3. Identify all the data series/lines in the chart
+4. Create a structured table where each row represents one X-axis point and columns represent different metrics/series
+
+Please return ONLY a JSON object with this exact structure:
+{{
+    "x_axis_label": "name of x-axis (e.g., 'model', 'time', etc.)",
+    "x_categories": ["list", "of", "x-axis", "labels"] (if categorical) or null (if numeric),
+    "series_names": ["metric1", "metric2", "metric3", ...],
+    "data_table": [
+        {{"x": "x_value_1", "metric1": value1, "metric2": value2, ...}},
+        {{"x": "x_value_2", "metric1": value1, "metric2": value2, ...}},
+        ...
+    ],
+    "chart_type": "bar_chart" or "line_chart",
+    "total_data_points": number
+}}
+
+Focus on accuracy and make sure the X-axis values and series data correspond correctly to what you see in the image."""
+
+            # Use APIManager to analyze image with enhanced prompt
+            ai_response = self.api_manager.analyze_image(image_uri, enhanced_prompt, 1000)
+            
+            if not ai_response:
+                return None
+            
+            # Extract JSON from response
+            start = ai_response.find("{")
+            end = ai_response.rfind("}")
+            if start != -1 and end != -1 and end > start:
+                json_str = ai_response[start : end + 1]
+                parsed = json.loads(json_str)
+                
+                # Convert to internal format
+                x_label = parsed.get("x_axis_label", "X")
+                x_categories = parsed.get("x_categories")
+                series_names = parsed.get("series_names", [])
+                data_table = parsed.get("data_table", [])
+                chart_type = parsed.get("chart_type", "unknown")
+                
+                # Build datasets in expected format
+                datasets = {}
+                total_points = 0
+                
+                for series_name in series_names:
+                    datasets[series_name] = []
+                    
+                for i, row in enumerate(data_table):
+                    x_val = i  # Use index as X coordinate for categorical data
+                    for series_name in series_names:
+                        if series_name in row:
+                            try:
+                                y_val = float(row[series_name])
+                                datasets[series_name].append((x_val, y_val))
+                                total_points += 1
+                            except (ValueError, TypeError):
+                                continue
+                
+                # Remove empty datasets
+                datasets = {k: v for k, v in datasets.items() if v}
+                
+                if not datasets:
+                    self.logger.warning(f"No valid datasets extracted from picture {pic_number}")
+                    return None
+                    
+                result = {
+                    "chart_type": chart_type,
+                    "x_axis_label": x_label,
+                    "y_axis_labels": list(datasets.keys()),
+                    "datasets": datasets,
+                    "data_points_count": total_points,
+                    "x_categories": x_categories,
+                    "raw_table": raw_deplot_output,
+                    "extraction_method": "image+deplot_verification",
+                    "parsing_success": True,
+                    "extraction_timestamp": time.strftime('%Y-%m-%d %H:%M:%S')
+                }
+                
+                self.logger.info(f"Successfully extracted chart data for picture {pic_number}: {len(datasets)} series, {total_points} points")
+                return result
+                
+        except Exception as e:
+            self.logger.error(f"Image verification failed for picture {pic_number}: {e}")
+            return None
     
     def create_enhanced_json(self, original_json_path: str, analysis_results: List[Dict], 
                             output_dir: str, output_filename: str = None, 
@@ -573,6 +802,99 @@ Summary:"""
             self.logger.error(f"Failed to create enhanced JSON: {e}")
             raise
 
+    def load_chartgemma_model(self):
+        """Load ChartGemma model for advanced chart analysis"""
+        if not HAS_CHARTGEMMA:
+            self.logger.warning("ChartGemma dependencies not available")
+            return False
+            
+        try:
+            self.logger.info("🤖 Loading ChartGemma model...")
+            
+            # Determine device
+            if torch.cuda.is_available():
+                self.chartgemma_device = torch.device("cuda")
+            else:
+                self.chartgemma_device = torch.device("cpu")
+            
+            self.chartgemma_model = PaliGemmaForConditionalGeneration.from_pretrained(
+                "ahmed-masry/chartgemma", 
+                torch_dtype=torch.float16 if self.chartgemma_device.type == "cuda" else torch.float32
+            ).to(self.chartgemma_device)
+            
+            self.chartgemma_processor = AutoProcessor.from_pretrained("ahmed-masry/chartgemma")
+            
+            self.logger.info("✅ ChartGemma model loaded successfully!")
+            return True
+        except Exception as e:
+            self.logger.error(f"❌ ChartGemma model loading failed: {e}")
+            return False
+
+    def analyze_chart_with_chartgemma(self, image_uri: str, chart_type: str = "unknown", pic_number: int = 1) -> Optional[Dict]:
+        """Analyze chart using ChartGemma model"""
+        if not HAS_CHARTGEMMA or self.chartgemma_model is None:
+            return None
+            
+        try:
+            # Extract base64 data and decode
+            if image_uri.startswith("data:image"):
+                base64_data = image_uri.split(",")[1]
+            else:
+                base64_data = image_uri
+                
+            image_bytes = base64.b64decode(base64_data)
+            image = Image.open(io.BytesIO(image_bytes)).convert('RGB')
+            
+            # Get appropriate question based on chart type
+            question = self._get_chartgemma_question(chart_type)
+            
+            self.logger.info(f"📊 Analyzing chart {pic_number} with ChartGemma...")
+            
+            # Process inputs
+            inputs = self.chartgemma_processor(text=question, images=image, return_tensors="pt")
+            prompt_length = inputs['input_ids'].shape[1]
+            inputs = {k: v.to(self.chartgemma_device) for k, v in inputs.items()}
+            
+            # Generate response
+            with torch.no_grad():
+                generate_ids = self.chartgemma_model.generate(
+                    **inputs, 
+                    num_beams=4, 
+                    max_new_tokens=512,
+                    do_sample=False
+                )
+            
+            # Decode output
+            output_text = self.chartgemma_processor.batch_decode(
+                generate_ids[:, prompt_length:], 
+                skip_special_tokens=True, 
+                clean_up_tokenization_spaces=False
+            )[0]
+            
+            return {
+                "question": question,
+                "response": output_text.strip(),
+                "chart_type_detected": chart_type,
+                "analysis_timestamp": time.strftime('%Y-%m-%d %H:%M:%S')
+            }
+            
+        except Exception as e:
+            self.logger.error(f"❌ ChartGemma analysis failed for picture {pic_number}: {e}")
+            return {"error": str(e), "chart_type_detected": chart_type}
+
+    def _get_chartgemma_question(self, chart_type: str = "unknown") -> str:
+        """Get appropriate question based on chart type"""
+        if "line" in chart_type.lower():
+            return "Describe this line chart in detail. Identify each line/trend, their patterns over time, maximum and minimum values, and overall trend directions."
+        elif "bar" in chart_type.lower():
+            return "Describe this bar chart in detail. List all categories and their values, identify highest and lowest values, and describe any patterns."
+        elif "pie" in chart_type.lower():
+            return "Describe this pie chart in detail. List each segment with its percentage, identify the largest and smallest portions."
+        elif "scatter" in chart_type.lower():
+            return "Describe this scatter plot in detail. Analyze the correlation pattern, identify any outliers, and describe the overall trend."
+        else:
+            return "Describe this chart in detail, including all visible elements, data patterns, trends, and key insights. Extract all numerical values and relationships."
+
     def create_nlp_ready_version(self, enhanced_json_path: str, output_dir: str, 
                                 output_filename: str = None, batch_mode: bool = False) -> str:
         """
@@ -627,15 +949,118 @@ Summary:"""
                 'processing_notes': 'NLP-ready version with image data removed, AI descriptions and web context preserved'
             }
             
-            # Remove image data while preserving AI analysis
+            # Thoroughly remove all image data while preserving AI analysis
+            removed_images_count = 0
+            
+            # Define comprehensive keys to remove
+            keys_to_strip = [
+                "image",           # Main Docling image container with uri field
+                "image_data",      # Alternative image data field
+                "imageData",       # CamelCase variant
+                "thumbnail",       # Thumbnail images
+                "page_image",      # Page-level image references
+                "pageImage",       # CamelCase page image
+                "uri",            # Direct URI fields (including base64 data URIs)
+                "data",           # Raw image data fields
+                "base64",         # Explicit base64 fields
+                "picture",        # Alternative picture containers
+                "img",            # Short image references
+                "imageUri",       # URI-specific image fields
+                "image_uri",      # Snake case URI fields
+            ]
+            
+            def remove_keys_recursive(obj: Any, keys_to_remove: List[str]) -> tuple[Any, int]:
+                """Recursively remove any keys in keys_to_remove from nested dict/list structures."""
+                removed = 0
+                if isinstance(obj, dict):
+                    new_dict = {}
+                    for k, v in obj.items():
+                        if k in keys_to_remove:
+                            removed += 1
+                            continue
+                        sanitized_v, rem = remove_keys_recursive(v, keys_to_remove)
+                        removed += rem
+                        new_dict[k] = sanitized_v
+                    return new_dict, removed
+                if isinstance(obj, list):
+                    new_list = []
+                    for item in obj:
+                        sanitized_item, rem = remove_keys_recursive(item, keys_to_remove)
+                        removed += rem
+                        new_list.append(sanitized_item)
+                    return new_list, removed
+                return obj, 0
+            
+            def clean_base64_data_uris(obj: Any) -> Any:
+                """Recursively find and clean base64 data URIs from any string fields"""
+                if isinstance(obj, dict):
+                    cleaned_dict = {}
+                    for k, v in obj.items():
+                        cleaned_v = clean_base64_data_uris(v)
+                        # Check if this is a data URI field and replace with placeholder
+                        if isinstance(cleaned_v, str) and cleaned_v.startswith("data:image"):
+                            cleaned_dict[k] = "data:image/placeholder;base64,REMOVED_FOR_NLP"
+                        else:
+                            cleaned_dict[k] = cleaned_v
+                    return cleaned_dict
+                elif isinstance(obj, list):
+                    return [clean_base64_data_uris(item) for item in obj]
+                else:
+                    return obj
+            
             if 'pictures' in nlp_data:
+                nlp_ready_pictures = []
                 for pic in nlp_data['pictures']:
-                    # Remove binary image data
-                    if 'image' in pic:
-                        del pic['image']
+                    # Remove nested image-related keys recursively
+                    sanitized_pic, removed = remove_keys_recursive(pic, keys_to_strip)
+                    removed_images_count += removed
                     
-                    # Keep AI analysis and web context for NLP processing
-                    # These contain the text descriptions that replace the images
+                    # Mark images as removed in AI analysis
+                    if "ai_analysis" not in sanitized_pic:
+                        sanitized_pic["ai_analysis"] = {
+                            "description": "Image was removed - no AI description available",
+                            "image_type": "REMOVED",
+                            "will_replace_image": True,
+                            "images_removed_in_step2": True,
+                        }
+                    else:
+                        # Mark existing AI analysis to indicate images were removed
+                        sanitized_pic["ai_analysis"]["images_removed_in_step2"] = True
+                        sanitized_pic["ai_analysis"]["will_replace_image"] = True
+                        
+                        # Update description to note image removal if it doesn't mention it
+                        current_desc = sanitized_pic["ai_analysis"].get("description", "")
+                        if current_desc and "removed" not in current_desc.lower():
+                            sanitized_pic["ai_analysis"]["description"] = f"{current_desc} (Original image data removed for NLP processing)"
+                    
+                    nlp_ready_pictures.append(sanitized_pic)
+                
+                nlp_data['pictures'] = nlp_ready_pictures
+            
+            # Remove root-level image containers
+            root_keys_to_remove = [
+                "resources", "page_images", "pageImages", "images", 
+                "figures", "pictures_raw", "media", "assets",
+                "embedded_images", "image_resources"
+            ]
+            for root_key in root_keys_to_remove:
+                if root_key in nlp_data:
+                    try:
+                        del nlp_data[root_key]
+                        self.logger.info(f"Removed root-level image container: {root_key}")
+                    except Exception:
+                        pass
+            
+            # Apply base64 cleaning to the entire data structure
+            nlp_data = clean_base64_data_uris(nlp_data)
+            
+            # Update metadata with removal statistics
+            nlp_data['step3_metadata'].update({
+                'removed_images_count': removed_images_count,
+                'base64_data_uris_removed': True,
+                'image_data_thoroughly_cleaned': True,
+                'removal_method': 'enhanced_recursive_removal'
+            })
             
             # Save NLP-ready JSON
             with open(nlp_ready_path, 'w', encoding='utf-8') as f:

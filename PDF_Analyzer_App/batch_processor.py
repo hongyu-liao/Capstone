@@ -135,7 +135,9 @@ class BatchProcessor:
             # Analyze images
             analysis_results = self.image_analyzer.analyze_images_from_json(
                 json_path,
-                self.config.get('enable_web_search', True)
+                self.config.get('enable_web_search', True),
+                self.config.get('enable_chart_extraction', True),
+                self.config.get('enable_chartgemma', True)
             )
             
             # Create enhanced JSON

@@ -7,8 +7,8 @@ accelerate>=0.33.0
 docling>=2.40.0
 docling-core>=2.40.0
 
-# Web search
-duckduckgo-search>=6.1.0
+# Web search (updated package name)
+ddgs>=0.9.0
 
 # Utilities
 requests>=2.31.0

@@ -1,0 +1,20 @@
+# ChartGemma依赖项
+# 基于 https://huggingface.co/ahmed-masry/chartgemma
+
+torch>=2.0.0
+transformers>=4.40.0
+Pillow>=9.5.0
+requests>=2.31.0
+
+# 模型特定依赖
+accelerate>=0.20.0
+safetensors>=0.3.0
+
+# 可选：GPU支持
+# torchvision>=0.15.0  # 如果需要GPU支持
+
+# 数据处理
+numpy>=1.24.0
+
+# 日志和输出
+tqdm>=4.65.0

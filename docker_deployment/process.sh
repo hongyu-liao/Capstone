@@ -16,6 +16,7 @@ if ls /app/input/*.pdf 1> /dev/null 2>&1; then
         
         # Run the main processing script with device selection
         # The script will automatically detect and ask for device selection
+        # Chart extraction is enabled by default (add --no-chart-extraction to disable)
         python main.py "$pdf_file" --output-dir /app/output --device auto
         
         # Check if processing was successful

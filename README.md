@@ -13,6 +13,17 @@ PDF Image Analyzer is a cutting-edge solution that transforms static PDF documen
 
 ### 🔧 What's New
 
+- **🎯 ChartGemma Integration**: Advanced chart analysis using the state-of-the-art ChartGemma model
+  - Automatic chart type detection and specialized questioning
+  - Enhanced chart understanding for line charts, bar charts, pie charts, scatter plots, etc.
+  - Integrated into Streamlit APP, Docker deployment, and Jupyter notebooks
+- **📊 Enhanced Chart Data Pipeline**: Three-level chart analysis system
+  - Gemma AI visual analysis for general understanding
+  - DePlot data extraction for structured data tables
+  - ChartGemma specialized analysis for deep chart insights
+- **🌐 Updated Web Search**: Migrated to `ddgs` package for improved reliability
+- **🎨 Dark Theme Support**: Removed white backgrounds for better IDE compatibility
+- **📝 Comprehensive Output**: DATA_VISUALIZATION images now show 3 analysis results, CONCEPTUAL images show 2 results
 - New modular `Functions/` package with clean, testable functions:
   - PDF→JSON (`pdf_to_json.py`)
   - Image analysis, web search, and enrichment (`image_analysis.py`)
@@ -28,6 +39,8 @@ PDF Image Analyzer is a cutting-edge solution that transforms static PDF documen
 
 - 🔍 **Smart PDF Processing** - Extract text and images using Docling with VLM pipeline
 - 🤖 **Multi-AI Provider Support** - Compatible with OpenAI, Google Gemini, Anthropic Claude, and LM Studio
+- 🎯 **ChartGemma Integration** - Advanced chart analysis with specialized questioning for different chart types (line, bar, pie, scatter plots, etc.)
+- 📊 **DePlot Chart Extraction** - Robust chart data extraction with AI verification and categorical X-axis support
 - 🌐 **Web Search Integration** - Automatic contextual enhancement with DuckDuckGo and native search APIs
 - 📊 **Interactive Reports** - Generate comprehensive HTML evaluation reports
 - 🐳 **Production Ready** - Docker containerization for scalable deployment

@@ -19,6 +19,7 @@ from .image_analysis import (
     enhance_analysis_with_chart_data,
     perform_web_search_and_summarize,
     summarize_deplot_with_lmstudio,
+    extract_chart_with_image_and_deplot_verification,
 )
 
 
@@ -207,52 +208,60 @@ def step1_add_ai_descriptions_with_chart_extraction(
             "will_replace_image": True,
         }
 
-        # Chart extraction for DATA_VISUALIZATION
+        # Chart extraction for DATA_VISUALIZATION with image+DePlot verification
         if enable_chart_extraction and ai_analysis.get("image_type") == "DATA_VISUALIZATION":
             logger.info("Attempting chart data extraction for picture #%s...", i)
+            # Step 1: Get raw DePlot output
             chart_data = extract_chart_data_with_deplot(image_uri, i)
-            # If robust/standard parser succeeded
-            if chart_data and chart_data.get("parsing_success"):
-                chart_extracted_count += 1
-                enhanced_pic["ai_analysis"] = enhance_analysis_with_chart_data(
-                    enhanced_pic["ai_analysis"], chart_data
+            
+            if chart_data and chart_data.get("raw_table"):
+                # Step 2: Use image + DePlot verification for better accuracy
+                logger.info("Verifying chart data with image analysis for picture #%s...", i)
+                verified_chart = extract_chart_with_image_and_deplot_verification(
+                    image_uri, chart_data["raw_table"], lm_studio_url, model_name, i
                 )
-                # Additional safeguard: if datasets missing but raw_table available, try LLM summarization
-                cde = enhanced_pic["ai_analysis"].get("chart_data_extraction", {})
-                if not cde.get("datasets") and chart_data.get("raw_table"):
-                    logger.info("Datasets missing after parsing; summarizing DePlot output with LLM for picture #%s...", i)
-                    llm_chart = summarize_deplot_with_lmstudio(chart_data["raw_table"], lm_studio_url, model_name)
-                    if llm_chart and llm_chart.get("parsing_success"):
+                
+                if verified_chart and verified_chart.get("parsing_success"):
+                    chart_extracted_count += 1
+                    enhanced_pic["ai_analysis"] = enhance_analysis_with_chart_data(
+                        enhanced_pic["ai_analysis"], verified_chart
+                    )
+                    logger.info("Successfully verified chart data with image analysis for picture #%s", i)
+                else:
+                    # Fallback to original parsing methods
+                    logger.info("Image verification failed, trying standard parsing for picture #%s...", i)
+                    if chart_data.get("parsing_success"):
+                        chart_extracted_count += 1
                         enhanced_pic["ai_analysis"] = enhance_analysis_with_chart_data(
-                            enhanced_pic["ai_analysis"], llm_chart
+                            enhanced_pic["ai_analysis"], chart_data
                         )
+                    elif chart_data.get("raw_table"):
+                        # Try LLM summarization as final fallback
+                        logger.info("Trying LLM summarization as fallback for picture #%s...", i)
+                        llm_chart = summarize_deplot_with_lmstudio(chart_data["raw_table"], lm_studio_url, model_name)
+                        if llm_chart and llm_chart.get("parsing_success"):
+                            chart_extracted_count += 1
+                            enhanced_pic["ai_analysis"] = enhance_analysis_with_chart_data(
+                                enhanced_pic["ai_analysis"], llm_chart
+                            )
+                        else:
+                            enhanced_pic["ai_analysis"].setdefault("chart_data_extraction", {})
+                            enhanced_pic["ai_analysis"]["chart_data_extraction"].update({
+                                "extraction_success": False,
+                                "extraction_method": "deplot+fallbacks_failed",
+                            })
                     else:
                         enhanced_pic["ai_analysis"].setdefault("chart_data_extraction", {})
                         enhanced_pic["ai_analysis"]["chart_data_extraction"].update({
                             "extraction_success": False,
-                            "extraction_method": "deplot+llm_summarization",
+                            "extraction_method": "deplot_no_raw_output",
                         })
-            # If returned raw_table (parsing failed), try LLM summarization with Gemma via LM Studio
-            elif chart_data and not chart_data.get("parsing_success") and chart_data.get("raw_table"):
-                logger.info("Parsing failed; summarizing DePlot output with LLM for picture #%s...", i)
-                llm_chart = summarize_deplot_with_lmstudio(chart_data["raw_table"], lm_studio_url, model_name)
-                if llm_chart and llm_chart.get("parsing_success"):
-                    chart_extracted_count += 1
-                    enhanced_pic["ai_analysis"] = enhance_analysis_with_chart_data(
-                        enhanced_pic["ai_analysis"], llm_chart
-                    )
-                else:
-                    enhanced_pic["ai_analysis"].setdefault("chart_data_extraction", {})
-                    enhanced_pic["ai_analysis"]["chart_data_extraction"].update({
-                        "extraction_success": False,
-                        "extraction_method": "deplot+llm_summarization",
-                    })
             else:
-                # Both parsing and LLM summarization unavailable
+                # DePlot extraction completely failed
                 enhanced_pic["ai_analysis"].setdefault("chart_data_extraction", {})
                 enhanced_pic["ai_analysis"]["chart_data_extraction"].update({
                     "extraction_success": False,
-                    "extraction_method": "google/deplot",
+                    "extraction_method": "deplot_failed",
                 })
 
         # Web search for CONCEPTUAL images
@@ -378,48 +387,116 @@ def step2_remove_all_images(
     removed_images_count = 0
 
     keys_to_strip = [
-        "image",
-        "image_data",
-        "imageData",
-        "thumbnail",
-        "page_image",
-        "pageImage",
+        "image",           # Main Docling image container with uri field
+        "image_data",      # Alternative image data field
+        "imageData",       # CamelCase variant
+        "thumbnail",       # Thumbnail images
+        "page_image",      # Page-level image references
+        "pageImage",       # CamelCase page image
+        "uri",            # Direct URI fields (including base64 data URIs)
+        "data",           # Raw image data fields
+        "base64",         # Explicit base64 fields
+        "picture",        # Alternative picture containers
+        "img",            # Short image references
+        "imageUri",       # URI-specific image fields
+        "image_uri",      # Snake case URI fields
     ]
 
     for i, pic_data in enumerate(data["pictures"], start=1):
         # Remove nested image-related keys recursively
         sanitized_pic, removed = remove_keys_recursive(pic_data, keys_to_strip)
         removed_images_count += removed
+        
+        # Ensure AI analysis exists and mark images as removed
         if "ai_analysis" not in sanitized_pic:
             sanitized_pic["ai_analysis"] = {
                 "description": "Image was removed - no AI description available",
                 "image_type": "REMOVED",
                 "will_replace_image": True,
+                "images_removed_in_step2": True,
             }
+        else:
+            # Mark existing AI analysis to indicate images were removed
+            sanitized_pic["ai_analysis"]["images_removed_in_step2"] = True
+            sanitized_pic["ai_analysis"]["will_replace_image"] = True
+            
+            # Update description to note image removal if it doesn't mention it
+            current_desc = sanitized_pic["ai_analysis"].get("description", "")
+            if current_desc and "removed" not in current_desc.lower():
+                sanitized_pic["ai_analysis"]["description"] = f"{current_desc} (Original image data removed for NLP processing)"
+        
         nlp_ready_pictures.append(sanitized_pic)
 
     data["pictures"] = nlp_ready_pictures
 
     # Also remove root-level image containers if present
-    for root_key in ["resources", "page_images", "pageImages", "images"]:
+    root_keys_to_remove = [
+        "resources", "page_images", "pageImages", "images", 
+        "figures", "pictures_raw", "media", "assets",
+        "embedded_images", "image_resources"
+    ]
+    for root_key in root_keys_to_remove:
         if root_key in data:
             try:
                 del data[root_key]
+                logger.info(f"Removed root-level image container: {root_key}")
             except Exception:
                 pass
 
+    # Remove any remaining base64 data URIs from the entire document
+    def clean_base64_data_uris(obj: Any) -> Any:
+        """Recursively find and clean base64 data URIs from any string fields"""
+        if isinstance(obj, dict):
+            cleaned_dict = {}
+            for k, v in obj.items():
+                cleaned_v = clean_base64_data_uris(v)
+                # Check if this is a data URI field and replace with placeholder
+                if isinstance(cleaned_v, str) and cleaned_v.startswith("data:image"):
+                    cleaned_dict[k] = "data:image/placeholder;base64,REMOVED_FOR_NLP"
+                else:
+                    cleaned_dict[k] = cleaned_v
+            return cleaned_dict
+        elif isinstance(obj, list):
+            return [clean_base64_data_uris(item) for item in obj]
+        else:
+            return obj
+    
+    # Apply base64 cleaning to the entire data structure
+    data = clean_base64_data_uris(data)
+
     # Post-removal verification (deep)
     remaining_image_keys = count_keys_recursive(data.get("pictures", []), "image")
-
+    
+    # Check for any remaining base64 data URIs
+    def count_base64_uris(obj: Any) -> int:
+        """Count remaining base64 data URIs in the structure"""
+        count = 0
+        if isinstance(obj, dict):
+            for v in obj.values():
+                count += count_base64_uris(v)
+        elif isinstance(obj, list):
+            for item in obj:
+                count += count_base64_uris(item)
+        elif isinstance(obj, str) and obj.startswith("data:image") and "base64," in obj and len(obj) > 100:
+            # Only count substantial base64 data, not our placeholders
+            count += 1
+        return count
+    
+    remaining_base64_uris = count_base64_uris(data)
+    
     nlp_metadata = {
         "original_picture_count": original_count,
         "nlp_ready_picture_count": len(nlp_ready_pictures),
         "removed_images_count": removed_images_count,
+        "removed_image_keys_count": removed_images_count,
         "images_completely_removed": True,
+        "base64_data_uris_removed": True,
         "nlp_ready": True,
         "step2_timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "version": "NLP_ready_no_images",
+        "version": "NLP_ready_no_images_enhanced",
         "remaining_image_keys": remaining_image_keys,
+        "remaining_base64_uris": remaining_base64_uris,
+        "image_data_thoroughly_cleaned": remaining_base64_uris == 0,
     }
     data["nlp_ready_metadata"] = nlp_metadata
 
@@ -433,11 +510,19 @@ def step2_remove_all_images(
         with open(output_json_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
         logger.info(
-            "Step 2 complete. NLP-ready JSON saved to: %s (removed image-key occurrences: %s, remaining image keys: %s)",
+            "Step 2 complete. NLP-ready JSON saved to: %s",
             output_json_path,
+        )
+        logger.info(
+            "Image removal summary: removed %s image key occurrences, %s image keys remaining, %s base64 URIs remaining",
             removed_images_count,
             remaining_image_keys,
+            remaining_base64_uris,
         )
+        if remaining_base64_uris == 0:
+            logger.info("✅ All image data successfully removed - JSON is fully NLP-ready")
+        else:
+            logger.warning("⚠️ Some base64 image data may still be present (%s URIs)", remaining_base64_uris)
         return True, str(output_json_path)
     except Exception:
         logger.exception("Failed to save NLP-ready JSON to: %s", output_json_path)
