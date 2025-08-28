@@ -206,63 +206,78 @@ def step1_add_ai_descriptions_with_chart_extraction(
             "analysis_timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
             "model_used": model_name,
             "will_replace_image": True,
+            "has_multiple_charts": ai_analysis.get("has_multiple_charts", False),
         }
 
-        # Chart extraction for DATA_VISUALIZATION with image+DePlot verification
+        # Chart extraction for DATA_VISUALIZATION with new multi-chart logic
         if enable_chart_extraction and ai_analysis.get("image_type") == "DATA_VISUALIZATION":
-            logger.info("Attempting chart data extraction for picture #%s...", i)
-            # Step 1: Get raw DePlot output
-            chart_data = extract_chart_data_with_deplot(image_uri, i)
+            has_multiple_charts = ai_analysis.get("has_multiple_charts", False)
             
-            if chart_data and chart_data.get("raw_table"):
-                # Step 2: Use image + DePlot verification for better accuracy
-                logger.info("Verifying chart data with image analysis for picture #%s...", i)
-                verified_chart = extract_chart_with_image_and_deplot_verification(
-                    image_uri, chart_data["raw_table"], lm_studio_url, model_name, i
-                )
+            if has_multiple_charts:
+                logger.info("Multiple charts detected in picture #%s - skipping DePlot, using ChartGemma only", i)
+                # Skip DePlot for multi-chart images, add extraction metadata
+                enhanced_pic["ai_analysis"].setdefault("chart_data_extraction", {})
+                enhanced_pic["ai_analysis"]["chart_data_extraction"].update({
+                    "extraction_success": False,
+                    "raw_table": None,
+                    "extraction_method": "skipped_multiple_charts",
+                    "extraction_timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "skip_reason": "Multiple charts detected - DePlot cannot handle multi-chart images"
+                })
+            else:
+                logger.info("Single chart detected - attempting DePlot extraction for picture #%s...", i)
+                # Step 1: Get raw DePlot output
+                chart_data = extract_chart_data_with_deplot(image_uri, i)
                 
-                if verified_chart and verified_chart.get("parsing_success"):
-                    chart_extracted_count += 1
-                    enhanced_pic["ai_analysis"] = enhance_analysis_with_chart_data(
-                        enhanced_pic["ai_analysis"], verified_chart
+                if chart_data and chart_data.get("raw_table"):
+                    # Step 2: Use image + DePlot verification for better accuracy
+                    logger.info("Verifying chart data with image analysis for picture #%s...", i)
+                    verified_chart = extract_chart_with_image_and_deplot_verification(
+                        image_uri, chart_data["raw_table"], lm_studio_url, model_name, i
                     )
-                    logger.info("Successfully verified chart data with image analysis for picture #%s", i)
-                else:
-                    # Fallback to original parsing methods
-                    logger.info("Image verification failed, trying standard parsing for picture #%s...", i)
-                    if chart_data.get("parsing_success"):
+                    
+                    if verified_chart and verified_chart.get("parsing_success"):
                         chart_extracted_count += 1
                         enhanced_pic["ai_analysis"] = enhance_analysis_with_chart_data(
-                            enhanced_pic["ai_analysis"], chart_data
+                            enhanced_pic["ai_analysis"], verified_chart
                         )
-                    elif chart_data.get("raw_table"):
-                        # Try LLM summarization as final fallback
-                        logger.info("Trying LLM summarization as fallback for picture #%s...", i)
-                        llm_chart = summarize_deplot_with_lmstudio(chart_data["raw_table"], lm_studio_url, model_name)
-                        if llm_chart and llm_chart.get("parsing_success"):
+                        logger.info("Successfully verified chart data with image analysis for picture #%s", i)
+                    else:
+                        # Fallback to original parsing methods
+                        logger.info("Image verification failed, trying standard parsing for picture #%s...", i)
+                        if chart_data.get("parsing_success"):
                             chart_extracted_count += 1
                             enhanced_pic["ai_analysis"] = enhance_analysis_with_chart_data(
-                                enhanced_pic["ai_analysis"], llm_chart
+                                enhanced_pic["ai_analysis"], chart_data
                             )
+                        elif chart_data.get("raw_table"):
+                            # Try LLM summarization as final fallback
+                            logger.info("Trying LLM summarization as fallback for picture #%s...", i)
+                            llm_chart = summarize_deplot_with_lmstudio(chart_data["raw_table"], lm_studio_url, model_name)
+                            if llm_chart and llm_chart.get("parsing_success"):
+                                chart_extracted_count += 1
+                                enhanced_pic["ai_analysis"] = enhance_analysis_with_chart_data(
+                                    enhanced_pic["ai_analysis"], llm_chart
+                                )
+                            else:
+                                enhanced_pic["ai_analysis"].setdefault("chart_data_extraction", {})
+                                enhanced_pic["ai_analysis"]["chart_data_extraction"].update({
+                                    "extraction_success": False,
+                                    "extraction_method": "deplot+fallbacks_failed",
+                                })
                         else:
                             enhanced_pic["ai_analysis"].setdefault("chart_data_extraction", {})
                             enhanced_pic["ai_analysis"]["chart_data_extraction"].update({
                                 "extraction_success": False,
-                                "extraction_method": "deplot+fallbacks_failed",
+                                "extraction_method": "deplot_no_raw_output",
                             })
-                    else:
-                        enhanced_pic["ai_analysis"].setdefault("chart_data_extraction", {})
-                        enhanced_pic["ai_analysis"]["chart_data_extraction"].update({
-                            "extraction_success": False,
-                            "extraction_method": "deplot_no_raw_output",
-                        })
-            else:
-                # DePlot extraction completely failed
-                enhanced_pic["ai_analysis"].setdefault("chart_data_extraction", {})
-                enhanced_pic["ai_analysis"]["chart_data_extraction"].update({
-                    "extraction_success": False,
-                    "extraction_method": "deplot_failed",
-                })
+                else:
+                    # DePlot extraction completely failed
+                    enhanced_pic["ai_analysis"].setdefault("chart_data_extraction", {})
+                    enhanced_pic["ai_analysis"]["chart_data_extraction"].update({
+                        "extraction_success": False,
+                        "extraction_method": "deplot_failed",
+                    })
 
         # Web search for CONCEPTUAL images
         if enable_web_search_for_conceptual and ai_analysis.get("image_type") == "CONCEPTUAL":

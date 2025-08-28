@@ -1,38 +1,81 @@
+# ===== REPOSITORY CLEANUP - ONLY KEEP CORE COMPONENTS =====
+
+# Keep only: PDF_Analyzer_App/, docker_deployment/, Functions/, Reproduce_Two_Stages.ipynb
+# Keep only: Sample Papers/, Sample Line Chart/, README.md, basic project files
+
+# ===== EXCLUDE ALL NON-ESSENTIAL NOTEBOOKS =====
+# Keep only Reproduce_Two_Stages.ipynb
+PDF_extract_and_Picture_Describe.ipynb
+
+# ===== EXCLUDE ALL AUXILIARY FILES =====
 hf_token.txt
-
-# AI-generated documentation (auto-generated, not version controlled)
-PROJECT_FUNCTIONS_DOCUMENTATION.md
-AI_START_HERE_READ_PROJECT_FUNCTIONS_DOCUMENTATION_MD_FIRST.txt
-
-# Project files log (auto-generated, not version controlled)
-project_files_log.csv
-
-# Image files
 chart_recognition_result.png
 Flowchart of the Project.png
 flowchart.png
 line_chart.png
 
-# Analysis scripts
+# Analysis scripts and converters
 Line_Chart_Extract.py
+json_to_html_converter.py
 
-# Review files
+# Demo app and temp files
+demo_app.py
+
+# Release and documentation files (generated)
+create_app_release_package.py
+create_docker_release_package_v2.py
+RELEASE_NOTES_v*.md
+GITHUB_RELEASE_UPLOAD_GUIDE.md
+UPLOAD_CHECKLIST.md
+AI_START_HERE_READ_PROJECT_FUNCTIONS_DOCUMENTATION_MD_FIRST.txt
+release-packages/
+
+# Project documentation (auto-generated)
+PROJECT_FUNCTIONS_DOCUMENTATION.md
+project_files_log.csv
+project_files_log.md
+
+
+
+# Review files and results
 Review.rar
 Review/
 
+# Testing and temporary directories  
+temp_testing_scripts/
+scratch/
+
+# Results and output directories
+results/
+chartgemma_results/
+output_lmstudio_conversion/
+
 # ===== DATA FILES - IGNORE ALL PROCESSING RESULTS =====
 
-# PDF files (input documents)
+# PDF files (exclude all except Sample folders)  
 *.pdf
-**/*.pdf
+# But allow Sample folders
+!Sample Papers/*.pdf
+!Sample Line Chart/*.pdf
 
-# JSON files (all processing outputs)
+# JSON files (exclude all processing outputs)
 *.json
 **/*.json
 
-# HTML files (analysis reports)
+# HTML files (exclude all analysis reports)
 *.html
 **/*.html
+
+# Image files (exclude all except Sample folders)
+*.png
+*.jpg
+*.jpeg
+!Sample Papers/*.png
+!Sample Papers/*.jpg  
+!Sample Papers/*.jpeg
+!Sample Line Chart/*.png
+!Sample Line Chart/*.jpg
+!Sample Line Chart/*.jpeg
 
 # Verification and analysis reports
 *_verification_report.txt
@@ -40,29 +83,9 @@ Review/
 
 # ===== SPECIFIC OUTPUT DIRECTORIES =====
 
-# PDF Analyzer App outputs
-PDF_Analyzer_App/output/
+# PDF Analyzer App outputs (keep structure, exclude content)
 PDF_Analyzer_App/output/*
-
-# ChartGemma results
-chartgemma_results/
-chartgemma_results/*
-
-# LM Studio conversion outputs
-output_lmstudio_conversion/
-output_lmstudio_conversion/*
-
-# Scratch and testing outputs
-scratch/
-scratch/*
-
-# Results directory
-results/
-results/*
-
-# Sample Line Chart (test images)
-Sample Line Chart/
-Sample Line Chart/*
+!PDF_Analyzer_App/output/.gitkeep
 
 # ===== TEMPORARY AND CACHE FILES =====
 

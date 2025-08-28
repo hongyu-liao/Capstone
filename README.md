@@ -13,17 +13,23 @@ PDF Image Analyzer is a cutting-edge solution that transforms static PDF documen
 
 ### 🔧 What's New
 
-- **🎯 ChartGemma Integration**: Advanced chart analysis using the state-of-the-art ChartGemma model
-  - Automatic chart type detection and specialized questioning
-  - Enhanced chart understanding for line charts, bar charts, pie charts, scatter plots, etc.
-  - Integrated into Streamlit APP, Docker deployment, and Jupyter notebooks
-- **📊 Enhanced Chart Data Pipeline**: Three-level chart analysis system
-  - Gemma AI visual analysis for general understanding
-  - DePlot data extraction for structured data tables
-  - ChartGemma specialized analysis for deep chart insights
-- **🌐 Updated Web Search**: Migrated to `ddgs` package for improved reliability
-- **🎨 Dark Theme Support**: Removed white backgrounds for better IDE compatibility
-- **📝 Comprehensive Output**: DATA_VISUALIZATION images now show 3 analysis results, CONCEPTUAL images show 2 results
+- **🎯 Advanced ChartGemma Integration**: State-of-the-art chart analysis with intelligent questioning
+  - **🧠 AI-Generated Prompts**: Dynamic prompt generation using AI models for optimal chart analysis
+  - **📊 Multi-Chart Detection**: Automatic detection and specialized handling of complex multi-panel figures
+  - **🔧 Enhanced Chart Understanding**: Specialized analysis for line charts, bar charts, pie charts, scatter plots, etc.
+  - **⚡ Full Platform Support**: Integrated across Streamlit APP, Docker deployment, and Jupyter notebooks
+- **🤖 Intelligent Multi-Chart Workflow**: Smart handling of complex visualizations
+  - Automatic detection of multi-panel figures and subplot arrangements
+  - Dynamic workflow adjustment: DePlot skipped for multi-chart images
+  - AI-generated intelligent prompts tailored to image complexity and content
+- **📊 Three-Level Chart Analysis Pipeline**: Comprehensive chart understanding system
+  - **Level 1**: Gemma AI visual analysis for general understanding and multi-chart detection
+  - **Level 2**: DePlot data extraction for structured data tables (single charts only)
+  - **Level 3**: ChartGemma specialized analysis with intelligent AI-generated questioning
+- **🌐 Enhanced Web Search**: Migrated to `ddgs` package with improved error handling and fallback mechanisms
+- **🎨 Dark Theme Compatibility**: Removed white backgrounds for better IDE integration
+- **📝 Comprehensive Analysis Output**: DATA_VISUALIZATION images show 3 analysis levels, CONCEPTUAL images show 2 levels
+- **🔧 Production-Ready Notebooks**: Updated `Reproduce_Two_Stages.ipynb` with complete multi-chart support and intelligent prompt generation
 - New modular `Functions/` package with clean, testable functions:
   - PDF→JSON (`pdf_to_json.py`)
   - Image analysis, web search, and enrichment (`image_analysis.py`)
@@ -39,9 +45,12 @@ PDF Image Analyzer is a cutting-edge solution that transforms static PDF documen
 
 - 🔍 **Smart PDF Processing** - Extract text and images using Docling with VLM pipeline
 - 🤖 **Multi-AI Provider Support** - Compatible with OpenAI, Google Gemini, Anthropic Claude, and LM Studio
-- 🎯 **ChartGemma Integration** - Advanced chart analysis with specialized questioning for different chart types (line, bar, pie, scatter plots, etc.)
-- 📊 **DePlot Chart Extraction** - Robust chart data extraction with AI verification and categorical X-axis support
-- 🌐 **Web Search Integration** - Automatic contextual enhancement with DuckDuckGo and native search APIs
+- 🎯 **Intelligent ChartGemma Integration** - Advanced chart analysis with AI-generated prompts
+  - **🧠 Dynamic Prompt Generation**: AI models create optimal questions for each chart type and complexity
+  - **📊 Multi-Chart Intelligence**: Specialized handling of complex multi-panel visualizations
+  - **⚙️ Adaptive Analysis**: Context-aware questioning for line charts, bar charts, pie charts, scatter plots, etc.
+- 📊 **Enhanced DePlot Chart Extraction** - Robust chart data extraction with AI verification and categorical X-axis support
+- 🌐 **Advanced Web Search Integration** - Automatic contextual enhancement with native APIs and DuckDuckGo fallback
 - 📊 **Interactive Reports** - Generate comprehensive HTML evaluation reports
 - 🐳 **Production Ready** - Docker containerization for scalable deployment
 - 🖥️ **User-Friendly GUI** - Streamlit web interface for easy interaction
@@ -408,6 +417,13 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - 🧪 Added `Reproduce_Two_Stages.ipynb` to independently run two-stage processing
 - 🔍 Added headless DePlot tester and robust parser improvements
 - ✅ Integrated inline final JSON verification (no file output)
+
+### v1.2.0 - Intelligent ChartGemma Enhancement
+- 🧠 **AI-Generated Prompt System**: Dynamic ChartGemma prompt generation using AI models
+- 🎯 **Enhanced APP Integration**: Full intelligent prompt generation support in Streamlit APP
+- 🐳 **Docker Intelligence Upgrade**: Advanced prompt generation with model-based and enhanced fallback methods
+- ⚡ **Performance Optimization**: Smart content-based prompt selection for different chart types
+- 🔧 **Complete Notebook Parity**: APP and Docker now match notebook's intelligent analysis capabilities
 
 ---
 

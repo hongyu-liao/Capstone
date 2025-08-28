@@ -48,10 +48,12 @@ def analyze_single_image_with_lmstudio(
         "3. If INFORMATIVE, classify the image type:\n"
         "   - DATA_VISUALIZATION: Charts, graphs, plots with actual data points, statistical visualizations\n"
         "   - CONCEPTUAL: Flowcharts, process diagrams, maps, conceptual frameworks, schematic diagrams, methodological illustrations\n\n"
-        "4. CRITICAL: Provide a comprehensive text description that can completely replace the image in a document. This description will be used instead of the image for NLP processing. Include all important details, relationships, data patterns, labels, and contextual information that a reader would need to understand what the image conveyed.\n\n"
-        "5. If the image is CONCEPTUAL type, also provide 2-3 specific search keywords that would help find background information about the concepts, methods, or geographic locations shown in the image.\n\n"
+        "4. If DATA_VISUALIZATION, check if this image contains MULTIPLE separate charts/graphs (e.g., side-by-side plots, subplots labeled a), b), c), etc.). This is important for processing decisions.\n\n"
+        "5. CRITICAL: Provide a comprehensive text description that can completely replace the image in a document. This description will be used instead of the image for NLP processing. Include all important details, relationships, data patterns, labels, and contextual information that a reader would need to understand what the image conveyed.\n\n"
+        "6. If the image is CONCEPTUAL type, also provide 2-3 specific search keywords that would help find background information about the concepts, methods, or geographic locations shown in the image.\n\n"
         "Format your response as:\n"
         "TYPE: [DATA_VISUALIZATION/CONCEPTUAL]\n"
+        "MULTIPLE_CHARTS: [YES/NO] (only if DATA_VISUALIZATION type)\n"
         "DETAILED_DESCRIPTION: [Your comprehensive replacement text description that captures all essential information from the image]\n"
         "SEARCH_KEYWORDS: [keyword1, keyword2, keyword3] (only if CONCEPTUAL type)"
     )
@@ -95,6 +97,7 @@ def analyze_single_image_with_lmstudio(
         "image_type": "UNKNOWN",
         "detailed_description": ai_response,
         "search_keywords": [],
+        "has_multiple_charts": False,
     }
 
     try:
@@ -104,6 +107,9 @@ def analyze_single_image_with_lmstudio(
                 parsed_type = line.replace("TYPE:", "").strip()
                 if parsed_type:
                     result["image_type"] = parsed_type
+            elif line.startswith("MULTIPLE_CHARTS:"):
+                multiple_charts = line.replace("MULTIPLE_CHARTS:", "").strip().upper()
+                result["has_multiple_charts"] = (multiple_charts == "YES")
             elif line.startswith("DETAILED_DESCRIPTION:"):
                 parsed_desc = line.replace("DETAILED_DESCRIPTION:", "").strip()
                 if parsed_desc:
@@ -491,11 +497,93 @@ Focus on accuracy and make sure the X-axis values and series data correspond cor
     return None
 
 
+def generate_chartgemma_prompt_with_gemma(
+    image_description: str,
+    has_multiple_charts: bool,
+    lm_studio_url: str,
+    model_name: str,
+    *,
+    max_tokens: int = 300,
+    temperature: float = 0.2,
+) -> str:
+    """
+    Generate intelligent ChartGemma prompt based on Gemma3's image analysis.
+    
+    Args:
+        image_description: The detailed description from Gemma3 analysis
+        has_multiple_charts: Whether the image contains multiple charts
+        lm_studio_url: LM Studio API endpoint
+        model_name: Model name for generation
+        
+    Returns:
+        Generated prompt for ChartGemma
+    """
+    if has_multiple_charts:
+        prompt_request = (
+            f"Based on this image description of a multi-chart figure:\n\n"
+            f"{image_description}\n\n"
+            f"Generate a focused question for chart analysis that asks for:\n"
+            f"1. Overall interpretation of all charts/subplots\n"
+            f"2. Relationships and patterns across the different panels\n"
+            f"3. Key insights that emerge from the complete figure\n"
+            f"4. Comparison of trends between different charts if applicable\n\n"
+            f"The question should be comprehensive but specific enough to get meaningful analysis. "
+            f"Respond with only the question, no additional text."
+        )
+    else:
+        prompt_request = (
+            f"Based on this image description of a single chart:\n\n"
+            f"{image_description}\n\n"
+            f"Generate a specific question for chart analysis that asks for:\n"
+            f"1. Detailed description of data patterns and trends\n"
+            f"2. Identification of key data points, outliers, or significant values\n"
+            f"3. Interpretation of axes, scales, and data relationships\n"
+            f"4. Scientific or practical insights from the visualization\n\n"
+            f"The question should be tailored to extract maximum insight from this specific chart type. "
+            f"Respond with only the question, no additional text."
+        )
+    
+    payload = {
+        "model": model_name,
+        "messages": [
+            {
+                "role": "user",
+                "content": prompt_request
+            }
+        ],
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+    }
+    
+    try:
+        response = requests.post(lm_studio_url, json=payload, timeout=120)
+        response.raise_for_status()
+        generated_prompt = response.json()["choices"][0]["message"]["content"].strip()
+        
+        logger.info(
+            "[Gemma] ✔ Generated ChartGemma prompt | multiple_charts=%s | prompt_len=%s",
+            has_multiple_charts,
+            len(generated_prompt)
+        )
+        
+        return generated_prompt
+        
+    except Exception as exc:
+        logger.error("Failed to generate ChartGemma prompt: %s", exc)
+        
+        # Fallback to generic prompts
+        if has_multiple_charts:
+            return "Describe all charts and subplots in this figure. Analyze the data patterns, trends, and relationships between different panels. Provide key insights from the complete visualization."
+        else:
+            return "Describe this chart in detail, including all visible elements, data patterns, trends, and key insights. Extract all numerical values and relationships."
+
+
 __all__ = [
     "analyze_single_image_with_lmstudio",
     "perform_web_search_and_summarize",
     "enhance_analysis_with_chart_data",
     "summarize_deplot_with_lmstudio",
     "extract_chart_with_image_and_deplot_verification",
+    "generate_chartgemma_prompt_with_gemma",
 ]
 

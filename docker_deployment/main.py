@@ -333,12 +333,15 @@ class PDFImageProcessor:
    - DATA_VISUALIZATION: Charts, graphs, plots with actual data points, statistical visualizations
    - CONCEPTUAL: Flowcharts, process diagrams, maps, conceptual frameworks, schematic diagrams, methodological illustrations
 
-4. CRITICAL: Provide a comprehensive text description that can completely replace the image in a document. This description will be used instead of the image for NLP processing. Include all important details, relationships, data patterns, labels, and contextual information that a reader would need to understand what the image conveyed.
+4. If DATA_VISUALIZATION, check if this image contains MULTIPLE separate charts/graphs (e.g., side-by-side plots, subplots labeled a), b), c), etc.). This is important for processing decisions.
 
-5. If the image is CONCEPTUAL type, also provide 2-3 specific search keywords that would help find background information about the concepts, methods, or geographic locations shown in the image.
+5. CRITICAL: Provide a comprehensive text description that can completely replace the image in a document. This description will be used instead of the image for NLP processing. Include all important details, relationships, data patterns, labels, and contextual information that a reader would need to understand what the image conveyed.
+
+6. If the image is CONCEPTUAL type, also provide 2-3 specific search keywords that would help find background information about the concepts, methods, or geographic locations shown in the image.
 
 Format your response as:
 TYPE: [DATA_VISUALIZATION/CONCEPTUAL]
+MULTIPLE_CHARTS: [YES/NO] (only if DATA_VISUALIZATION type)
 DETAILED_DESCRIPTION: [Your comprehensive replacement text description that captures all essential information from the image]
 SEARCH_KEYWORDS: [keyword1, keyword2, keyword3] (only if CONCEPTUAL type)"""
 
@@ -376,9 +379,18 @@ SEARCH_KEYWORDS: [keyword1, keyword2, keyword3] (only if CONCEPTUAL type)"""
                         description = f"A conceptual diagram or schematic illustration showing relationships, processes, or methodological frameworks. The figure provides visual representation of concepts discussed in the text and helps explain the research approach or theoretical background."
                         search_keywords = ["conceptual diagram", "research methodology", "scientific illustration"]
                     
+                    # Check for multi-chart detection for DATA_VISUALIZATION images
+                    has_multiple_charts = False
+                    if image_type == 'DATA_VISUALIZATION':
+                        # Simple heuristic: wide images or those with "multiple", "subplot", etc. might be multi-chart
+                        if (image_size > 100000 or  # Large image size
+                            any(keyword in description.lower() for keyword in ['multiple', 'subplot', 'panel', 'side by side', 'a)', 'b)', 'c)'])):
+                            has_multiple_charts = True
+                    
                     result = {
                         'is_non_informative': False,
                         'image_type': image_type,
+                        'has_multiple_charts': has_multiple_charts,
                         'detailed_description': description,
                         'search_keywords': search_keywords
                     }
@@ -393,6 +405,7 @@ SEARCH_KEYWORDS: [keyword1, keyword2, keyword3] (only if CONCEPTUAL type)"""
             result = {
                 'is_non_informative': False,
                 'image_type': 'CONCEPTUAL',
+                'has_multiple_charts': False,
                 'detailed_description': 'A scientific figure or illustration that provides visual information supporting the research content. The image contains relevant details that complement the textual description in the document.',
                 'search_keywords': ['scientific figure', 'research illustration']
             }
@@ -590,7 +603,143 @@ SEARCH_KEYWORDS: [keyword1, keyword2, keyword3] (only if CONCEPTUAL type)"""
             logger.error(f"❌ ChartGemma model loading failed: {e}")
             return False
 
-    def analyze_chart_with_chartgemma(self, image_uri: str, chart_type: str = "unknown", pic_number: int = 1) -> Optional[Dict]:
+    def generate_chartgemma_prompt_with_intelligence(self, description: str, has_multiple_charts: bool = False) -> str:
+        """Generate intelligent ChartGemma prompt using AI (matching notebook logic) with fallback"""
+        try:
+            # Try to use AI-generated intelligent prompts first (matching notebook logic)
+            logger.info("🎯 Attempting intelligent ChartGemma prompt generation...")
+            
+            # For Docker, we can use Hugging Face models for prompt generation if available
+            # Or use a simplified fallback approach
+            if hasattr(self, 'model') and self.model is not None:
+                logger.info("🤖 Generating intelligent prompt using loaded model...")
+                
+                if has_multiple_charts:
+                    prompt_request = (
+                        f"Based on this image description of a multi-chart figure:\n\n"
+                        f"{description}\n\n"
+                        f"Generate a focused question for chart analysis that asks for:\n"
+                        f"1. Overall interpretation of all charts/subplots\n"
+                        f"2. Relationships and patterns across the different panels\n"
+                        f"3. Key insights that emerge from the complete figure\n"
+                        f"4. Comparison of trends between different charts if applicable\n\n"
+                        f"The question should be comprehensive but specific enough to get meaningful analysis. "
+                        f"Respond with only the question, no additional text."
+                    )
+                else:
+                    prompt_request = (
+                        f"Based on this image description of a single chart:\n\n"
+                        f"{description}\n\n"
+                        f"Generate a specific question for chart analysis that asks for:\n"
+                        f"1. Detailed description of data patterns and trends\n"
+                        f"2. Identification of key data points, outliers, or significant values\n"
+                        f"3. Interpretation of axes, scales, and data relationships\n"
+                        f"4. Scientific or practical insights from the visualization\n\n"
+                        f"The question should be tailored to extract maximum insight from this specific chart type. "
+                        f"Respond with only the question, no additional text."
+                    )
+                
+                # Use the model to generate intelligent prompt
+                try:
+                    inputs = self.tokenizer(prompt_request, return_tensors="pt", max_length=512, truncation=True)
+                    inputs = {k: v.to(self.device) for k, v in inputs.items()}
+                    
+                    with torch.no_grad():
+                        outputs = self.model.generate(
+                            **inputs,
+                            max_new_tokens=150,
+                            temperature=0.3,
+                            do_sample=True,
+                            pad_token_id=self.tokenizer.eos_token_id
+                        )
+                    
+                    generated_prompt = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+                    # Extract only the generated part (after the input prompt)
+                    if len(generated_prompt) > len(prompt_request):
+                        generated_prompt = generated_prompt[len(prompt_request):].strip()
+                    
+                    if len(generated_prompt) > 20:
+                        logger.info(f"✅ Generated intelligent prompt: {generated_prompt[:100]}...")
+                        return generated_prompt
+                    else:
+                        logger.warning("⚠️ Generated prompt too short, using fallback")
+                        
+                except Exception as gen_error:
+                    logger.warning(f"⚠️ Model prompt generation failed: {gen_error}")
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Intelligent prompt generation failed: {e}")
+        
+        # Fallback to enhanced static prompts
+        logger.info("📋 Using enhanced fallback prompt generation...")
+        return self._generate_enhanced_fallback_prompt(description, has_multiple_charts)
+    
+    def _generate_enhanced_fallback_prompt(self, description: str, has_multiple_charts: bool = False) -> str:
+        """Generate enhanced fallback ChartGemma prompt (static but improved version)"""
+        try:
+            if has_multiple_charts:
+                return """Analyze this multi-panel figure comprehensively. For each chart/subplot:
+1. Identify the chart type and what it measures
+2. Describe the data patterns, trends, and relationships
+3. Extract key numerical values and ranges
+4. Compare patterns between different panels
+5. Provide overall insights about the complete visualization
+
+Focus on quantitative details and relationships between the different charts."""
+            else:
+                # Enhanced content-based prompt selection
+                desc_lower = description.lower()
+                
+                if any(term in desc_lower for term in ["trend", "time", "temporal", "evolution", "progression"]):
+                    return """Describe this temporal chart in detail focusing on:
+1. Data trends and patterns over time
+2. Maximum and minimum values with their timing
+3. Rate of change and trend directions
+4. Any notable inflection points, anomalies, or seasonal patterns
+5. Overall trajectory and future implications
+6. Time-based correlations and relationships
+
+Extract all visible numerical values, time periods, and temporal markers."""
+                
+                elif any(term in desc_lower for term in ["compar", "multiple", "categor", "group", "versus", "vs"]):
+                    return """Analyze this comparative chart in detail:
+1. Identify all categories or groups being compared
+2. List the exact values for each category
+3. Rank from highest to lowest performance
+4. Calculate differences, ratios, and percentage changes
+5. Describe patterns and relationships between categories
+6. Identify statistical significance or notable outliers
+
+Extract all numerical values, category labels, and comparative metrics."""
+                
+                elif any(term in desc_lower for term in ["distribut", "scatter", "correlation", "relationship"]):
+                    return """Examine this distribution/relationship chart comprehensively:
+1. Describe the overall distribution pattern or correlation
+2. Identify clusters, outliers, and data density areas
+3. Calculate or estimate correlation strength and direction
+4. Describe the range and spread of data points
+5. Note any non-linear patterns or anomalies
+6. Provide statistical insights about the relationship
+
+Focus on quantitative measures and relationship strength."""
+                
+                else:
+                    return """Describe this chart comprehensively:
+1. Identify the chart type and measurement units
+2. List all data points and their exact values
+3. Describe patterns, trends, and relationships
+4. Identify highest and lowest values with context
+5. Extract any labels, legends, annotations, and scales
+6. Provide key insights and practical implications
+7. Note data quality, completeness, and reliability
+
+Focus on quantitative accuracy and complete data extraction."""
+                    
+        except Exception as e:
+            logger.warning(f"Enhanced fallback prompt generation failed: {e}")
+            return "Describe this chart in detail, including all visible elements, data patterns, trends, and key insights. Extract all numerical values and relationships."
+
+    def analyze_chart_with_chartgemma(self, image_uri: str, description: str = "", has_multiple_charts: bool = False, pic_number: int = 1) -> Optional[Dict]:
         """Analyze chart using ChartGemma model"""
         if not HAS_CHARTGEMMA or self.chartgemma_model is None:
             return None
@@ -605,13 +754,15 @@ SEARCH_KEYWORDS: [keyword1, keyword2, keyword3] (only if CONCEPTUAL type)"""
             image_bytes = base64.b64decode(base64_data)
             image = Image.open(io.BytesIO(image_bytes)).convert('RGB')
             
-            # Get appropriate question based on chart type
-            question = self._get_chartgemma_question(chart_type)
+            # Generate intelligent ChartGemma prompt (matching notebook logic)
+            logger.info(f"🎯 Generating intelligent prompt for chart {pic_number} (multiple_charts: {has_multiple_charts})...")
+            intelligent_question = self.generate_chartgemma_prompt_with_intelligence(description, has_multiple_charts)
+            logger.info(f"💡 Generated prompt: {intelligent_question[:100]}...")
             
             logger.info(f"📊 Analyzing chart {pic_number} with ChartGemma...")
             
             # Process inputs
-            inputs = self.chartgemma_processor(text=question, images=image, return_tensors="pt")
+            inputs = self.chartgemma_processor(text=intelligent_question, images=image, return_tensors="pt")
             prompt_length = inputs['input_ids'].shape[1]
             inputs = {k: v.to(self.device) for k, v in inputs.items()}
             
@@ -632,14 +783,17 @@ SEARCH_KEYWORDS: [keyword1, keyword2, keyword3] (only if CONCEPTUAL type)"""
             )[0]
             
             return {
-                "question": question,
+                "question": intelligent_question,
                 "response": output_text.strip(),
-                "chart_type_detected": chart_type
+                "has_multiple_charts": has_multiple_charts,
+                "prompt_generated_by": "intelligent_ai" if hasattr(self, 'model') and self.model else "enhanced_fallback",
+                "chart_type_detected": "unknown",  # Will be filled by caller if available
+                "analysis_timestamp": time.strftime('%Y-%m-%d %H:%M:%S')
             }
             
         except Exception as e:
             logger.error(f"❌ ChartGemma analysis failed for picture {pic_number}: {e}")
-            return {"error": str(e), "chart_type_detected": chart_type}
+            return {"error": str(e), "has_multiple_charts": has_multiple_charts, "chart_type_detected": "unknown"}
 
     def _get_chartgemma_question(self, chart_type: str = "unknown") -> str:
         """Get appropriate question based on chart type"""
@@ -699,6 +853,7 @@ SEARCH_KEYWORDS: [keyword1, keyword2, keyword3] (only if CONCEPTUAL type)"""
                         'picture_number': i+1,
                         'original_caption': pic_data.get('prov', [{}])[0].get('page', {}).get('page', 'Unknown'),
                         'image_type': ai_analysis.get('image_type', 'UNKNOWN'),
+                        'has_multiple_charts': ai_analysis.get('has_multiple_charts', False),
                         'description': ai_analysis.get('detailed_description', ''),
                         'analysis_timestamp': time.strftime('%Y-%m-%d %H:%M:%S')
                     }
@@ -707,35 +862,47 @@ SEARCH_KEYWORDS: [keyword1, keyword2, keyword3] (only if CONCEPTUAL type)"""
                     if (enable_chart_extraction and 
                         ai_analysis.get('image_type') == 'DATA_VISUALIZATION'):
                         
-                        logger.info(f"📊 Extracting chart data for picture {i+1}")
+                        has_multiple_charts = ai_analysis.get('has_multiple_charts', False)
                         
-                        # Step 1: Get raw DePlot output
-                        chart_data = self.extract_chart_data_with_deplot(image_uri, i+1)
-                        
-                        if chart_data and chart_data.get("raw_table"):
-                            # Step 2: Use simplified verification parsing
-                            verified_chart = self.extract_chart_with_image_verification(
-                                image_uri, chart_data["raw_table"], i+1
-                            )
-                            
-                            if verified_chart and verified_chart.get("parsing_success"):
-                                result['chart_data_extraction'] = verified_chart
-                                logger.info(f"✅ Successfully extracted chart data for picture {i+1}")
-                            else:
-                                # Fallback to raw DePlot output
-                                result['chart_data_extraction'] = {
-                                    "extraction_success": False,
-                                    "raw_table": chart_data["raw_table"],
-                                    "extraction_method": "deplot_only",
-                                    "extraction_timestamp": chart_data.get("extraction_timestamp")
-                                }
-                        else:
-                            # DePlot extraction failed
+                        if has_multiple_charts:
+                            logger.info(f"📊 Multiple charts detected in picture {i+1} - skipping DePlot, using ChartGemma only")
+                            # Skip DePlot for multi-chart images, add extraction metadata
                             result['chart_data_extraction'] = {
                                 "extraction_success": False,
-                                "extraction_method": "deplot_failed",
-                                "extraction_timestamp": time.strftime('%Y-%m-%d %H:%M:%S')
-                    }
+                                "raw_table": None,
+                                "extraction_method": "skipped_multiple_charts",
+                                "extraction_timestamp": time.strftime('%Y-%m-%d %H:%M:%S'),
+                                "skip_reason": "Multiple charts detected - DePlot cannot handle multi-chart images"
+                            }
+                        else:
+                            logger.info(f"📊 Single chart detected - attempting DePlot extraction for picture {i+1}")
+                            # Step 1: Get raw DePlot output
+                            chart_data = self.extract_chart_data_with_deplot(image_uri, i+1)
+                            
+                            if chart_data and chart_data.get("raw_table"):
+                                # Step 2: Use simplified verification parsing
+                                verified_chart = self.extract_chart_with_image_verification(
+                                    image_uri, chart_data["raw_table"], i+1
+                                )
+                                
+                                if verified_chart and verified_chart.get("parsing_success"):
+                                    result['chart_data_extraction'] = verified_chart
+                                    logger.info(f"✅ Successfully extracted chart data for picture {i+1}")
+                                else:
+                                    # Fallback to raw DePlot output
+                                    result['chart_data_extraction'] = {
+                                        "extraction_success": False,
+                                        "raw_table": chart_data["raw_table"],
+                                        "extraction_method": "deplot_only",
+                                        "extraction_timestamp": chart_data.get("extraction_timestamp")
+                                    }
+                            else:
+                                # DePlot extraction failed
+                                result['chart_data_extraction'] = {
+                                    "extraction_success": False,
+                                    "extraction_method": "deplot_failed",
+                                    "extraction_timestamp": time.strftime('%Y-%m-%d %H:%M:%S')
+                                }
                     
                     # Add web search for conceptual images
                     if (enable_web_search and 
@@ -757,12 +924,29 @@ SEARCH_KEYWORDS: [keyword1, keyword2, keyword3] (only if CONCEPTUAL type)"""
                         ai_analysis.get('image_type') == 'DATA_VISUALIZATION' and
                         HAS_CHARTGEMMA and self.chartgemma_model is not None):
                         
-                        chart_type = result.get('chart_data_extraction', {}).get('chart_type', 'unknown')
-                        chartgemma_result = self.analyze_chart_with_chartgemma(image_uri, chart_type, i+1)
+                        description = ai_analysis.get('detailed_description', '')
+                        has_multiple_charts = ai_analysis.get('has_multiple_charts', False)
+                        
+                        chartgemma_result = self.analyze_chart_with_chartgemma(
+                            image_uri, 
+                            description, 
+                            has_multiple_charts, 
+                            i+1
+                        )
                         
                         if chartgemma_result:
+                            # Add chart type from extraction if available
+                            chart_type = result.get('chart_data_extraction', {}).get('chart_type', 'unknown')
+                            chartgemma_result['chart_type_detected'] = chart_type
+                            
                             result['chartgemma_analysis'] = chartgemma_result
                             logger.info(f"✅ Added ChartGemma analysis for picture {i+1}")
+                            
+                            # Log workflow decision
+                            if has_multiple_charts and result.get('chart_data_extraction', {}).get('extraction_method') == 'skipped_multiple_charts':
+                                logger.info(f"🔄 Workflow: DePlot SKIPPED (multi-chart), ChartGemma USED")
+                            else:
+                                logger.info(f"🔄 Workflow: DePlot ATTEMPTED, ChartGemma USED")
                     
                     analysis_results.append(result)
                     processed_count += 1
