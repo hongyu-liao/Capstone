@@ -7,7 +7,7 @@ from pathlib import Path
 
 # Docling imports
 from docling.datamodel.base_models import InputFormat
-from docling.datamodel.pipeline_options import VlmPipelineOptions, PdfPipelineOptions
+from docling.datamodel.pipeline_options import VlmPipelineOptions, PdfPipelineOptions, ApiVlmOptions, ResponseFormat
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling.pipeline.vlm_pipeline import VlmPipeline
 
@@ -24,14 +24,15 @@ class PDFProcessor:
         self.config = config
         self.logger = logging.getLogger(__name__)
         
-    def convert_pdf_to_json(self, pdf_path: str, output_dir: str, output_filename: str = None) -> Optional[Dict]:
+    def convert_pdf_to_json(self, pdf_path: str, output_dir: str, output_filename: str = None, use_api: bool = False) -> Optional[Dict]:
         """
-        Convert PDF to JSON using Docling with VLM Pipeline (matching notebook Cell 2 logic)
+        Convert PDF to JSON using Docling with VLM Pipeline or API
         
         Args:
             pdf_path (str): Path to input PDF file
             output_dir (str): Output directory
             output_filename (str): Optional custom filename (if None, use original PDF name)
+            use_api (bool): Whether to use remote API instead of local model
             
         Returns:
             Optional[Dict]: Result metadata or None if failed
@@ -55,8 +56,16 @@ class PDFProcessor:
             
             start_time = time.time()
             
-            # Check if we should use LM Studio VLM Pipeline
-            if self.config.get('lm_studio_url') and self.config.get('model_name'):
+            # Check processing method based on configuration
+            ai_provider = self.config.get('ai_provider', 'LM Studio (Local)')
+            
+            if use_api and ai_provider != 'LM Studio (Local)':
+                self.logger.info(f"⚙️ Configuring VLM Pipeline to use '{ai_provider}' API...")
+                pipeline_options = self._configure_remote_api_pipeline()
+                if not pipeline_options:
+                    self.logger.error("❌ Failed to configure remote API pipeline")
+                    return None
+            elif self.config.get('lm_studio_url') and self.config.get('model_name'):
                 self.logger.info(f"⚙️ Configuring VLM Pipeline to use '{self.config['model_name']}' on LM Studio...")
                 
                 # Configure VLM Pipeline Options (matching notebook logic)
@@ -78,7 +87,10 @@ class PDFProcessor:
                     },
                 )
                 
-                self.logger.info("🤖 Using LM Studio VLM pipeline for enhanced extraction")
+                if use_api and ai_provider != 'LM Studio (Local)':
+                    self.logger.info(f"🌐 Using {ai_provider} API for enhanced extraction")
+                else:
+                    self.logger.info("🤖 Using LM Studio VLM pipeline for enhanced extraction")
             else:
                 # Fallback to standard pipeline
                 self.logger.info("📋 Using standard Docling pipeline")
@@ -109,6 +121,61 @@ class PDFProcessor:
             self.logger.error(f"PDF conversion failed: {str(e)}")
             if "LM Studio" in str(e) or "connection" in str(e).lower():
                 self.logger.error(f"❌ Is the LM Studio server running with model '{self.config.get('model_name', 'N/A')}' loaded?")
+            return None
+    
+    def _configure_remote_api_pipeline(self) -> Optional[VlmPipelineOptions]:
+        """Configure VLM Pipeline for remote API providers"""
+        try:
+            ai_provider = self.config.get('ai_provider')
+            api_key = self.config.get('api_key')
+            model_name = self.config.get('model_name')
+            
+            if not api_key:
+                self.logger.error(f"❌ API key required for {ai_provider}")
+                return None
+            
+            # Note: For actual API usage, we fall back to LM Studio format
+            # as Docling's ApiVlmOptions may not support all providers directly
+            self.logger.warning(f"⚠️ API provider {ai_provider} configured, but using LM Studio format for Docling compatibility")
+            
+            if ai_provider == "OpenAI (ChatGPT)":
+                # Use LM Studio-compatible format but will be handled by API manager
+                api_options = ApiVlmOptions(
+                    url="https://api.openai.com/v1/chat/completions",
+                    params=dict(model=model_name, Authorization=f"Bearer {api_key}"),
+                    prompt="Parse the document and extract all text content and images.",
+                    timeout=90.0,
+                    response_format=ResponseFormat.MARKDOWN
+                )
+                
+            elif ai_provider == "Google (Gemini)":
+                api_options = ApiVlmOptions(
+                    url=f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}",
+                    params=dict(model=model_name),
+                    prompt="Parse the document and extract all text content and images.",
+                    timeout=90.0,
+                    response_format=ResponseFormat.MARKDOWN
+                )
+                
+            elif ai_provider == "Anthropic (Claude)":
+                api_options = ApiVlmOptions(
+                    url="https://api.anthropic.com/v1/messages",
+                    params=dict(model=model_name, max_tokens=16384, **{"x-api-key": api_key, "anthropic-version": "2023-06-01"}),
+                    prompt="Parse the document and extract all text content and images.",
+                    timeout=90.0,
+                    response_format=ResponseFormat.MARKDOWN
+                )
+            else:
+                self.logger.error(f"❌ Unsupported API provider: {ai_provider}")
+                return None
+            
+            return VlmPipelineOptions(
+                api_vlm_options=api_options,
+                generate_page_images=True
+            )
+            
+        except Exception as e:
+            self.logger.error(f"❌ Failed to configure remote API: {e}")
             return None
     
     def _test_lm_studio_connection(self) -> bool:

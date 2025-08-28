@@ -1,5 +1,5 @@
-# Use official Python runtime as base image with CUDA support
-FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-devel
+# Use official Python runtime as base image with CUDA 12.6 support (matching your conda env)
+FROM pytorch/pytorch:2.6.0-cuda12.6-cudnn9-devel
 
 # Set working directory
 WORKDIR /app
@@ -34,7 +34,8 @@ COPY requirements.txt .
 RUN pip install --upgrade pip setuptools wheel
 
 # Install Python dependencies in stages for better error handling
-RUN pip install torch>=2.6.0 torchvision>=0.19.0 torchaudio>=2.6.0 --index-url https://download.pytorch.org/whl/cu124
+# Use CUDA 12.6 to match your conda environment
+RUN pip install torch>=2.6.0 torchvision>=0.19.0 torchaudio>=2.6.0 --index-url https://download.pytorch.org/whl/cu126
 RUN pip install transformers>=4.45.0 accelerate>=0.33.0 huggingface-hub>=0.25.0
 RUN pip install docling>=2.40.0 docling-core>=2.40.0
 RUN pip install duckduckgo-search>=6.1.0 requests>=2.31.0 Pillow>=10.0.0 numpy>=1.24.0 pandas>=2.0.0

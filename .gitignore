@@ -1,10 +1,10 @@
 # ===== REPOSITORY CLEANUP - ONLY KEEP CORE COMPONENTS =====
 
-# Keep only: PDF_Analyzer_App/, docker_deployment/, Functions/, Reproduce_Two_Stages.ipynb
+# Keep only: PDF_Analyzer_App/, docker_deployment/, Functions/, PDF_Parsing.ipynb
 # Keep only: Sample Papers/, Sample Line Chart/, README.md, basic project files
 
 # ===== EXCLUDE ALL NON-ESSENTIAL NOTEBOOKS =====
-# Keep only Reproduce_Two_Stages.ipynb
+# Keep only PDF_Parsing.ipynb (renamed from Reproduce_Two_Stages.ipynb)
 PDF_extract_and_Picture_Describe.ipynb
 
 # ===== EXCLUDE ALL AUXILIARY FILES =====

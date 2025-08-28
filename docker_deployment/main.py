@@ -17,7 +17,7 @@ try:
     from ddgs import DDGS
 except ImportError:
     try:
-from duckduckgo_search import DDGS
+        from duckduckgo_search import DDGS
     except ImportError:
         DDGS = None
 
@@ -61,10 +61,84 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+def test_docker_gpu_simple():
+    """Simple GPU test for Docker container"""
+    print("🐳 Docker GPU Test:")
+    print("=" * 30)
+    
+    try:
+        import torch
+        print(f"PyTorch Version: {torch.__version__}")
+        print(f"CUDA Available: {'✅ Yes' if torch.cuda.is_available() else '❌ No'}")
+        
+        if torch.cuda.is_available():
+            print(f"CUDA Version: {torch.version.cuda}")
+            print(f"GPU Count: {torch.cuda.device_count()}")
+            
+            for i in range(torch.cuda.device_count()):
+                name = torch.cuda.get_device_name(i)
+                memory = torch.cuda.get_device_properties(i).total_memory / (1024**3)
+                print(f"GPU {i}: {name} ({memory:.1f}GB)")
+            
+            # Test GPU functionality
+            try:
+                test_tensor = torch.randn(100, 100).cuda()
+                result = torch.mm(test_tensor, test_tensor)
+                print("GPU Functionality: ✅ Working")
+                del test_tensor, result
+                torch.cuda.empty_cache()
+                return True
+            except Exception as e:
+                print(f"GPU Functionality: ❌ Failed ({e})")
+                return False
+        else:
+            print("🔧 GPU not available in Docker container")
+            print("💡 Ensure Docker is run with --gpus all flag")
+            return False
+            
+    except ImportError:
+        print("❌ PyTorch not installed")
+        return False
+
+def detect_docker_gpu_environment():
+    """Enhanced Docker GPU detection with detailed information"""
+    print("🐳 Docker GPU Environment Detection:")
+    print("=" * 50)
+    
+    # Check if running in Docker
+    try:
+        with open('/proc/1/cgroup', 'r') as f:
+            content = f.read()
+            if 'docker' in content or 'containerd' in content:
+                print("📦 Running inside Docker container: ✅ Yes")
+            else:
+                print("📦 Running inside Docker container: ❌ No")
+    except:
+        print("📦 Running inside Docker container: ❓ Unknown")
+    
+    # Check NVIDIA runtime in Docker
+    try:
+        import subprocess
+        result = subprocess.run(['nvidia-smi'], capture_output=True, text=True, timeout=10)
+        if result.returncode == 0:
+            print("🔧 NVIDIA Docker Runtime: ✅ Available")
+            print("📊 NVIDIA-SMI Output:")
+            # Show simplified GPU info
+            lines = result.stdout.split('\n')
+            for line in lines:
+                if 'NVIDIA-SMI' in line or 'GeForce' in line or 'Tesla' in line or 'Quadro' in line:
+                    print(f"   {line.strip()}")
+        else:
+            print("🔧 NVIDIA Docker Runtime: ❌ Not available")
+    except:
+        print("🔧 NVIDIA Docker Runtime: ❌ nvidia-smi not found")
+    
+    return detect_torch_environment()
+
 def detect_torch_environment():
     """Detect Torch environment and available devices"""
-    print("🔍 Detecting Torch Environment...")
-    print("=" * 50)
+    print("\n🔍 PyTorch Environment Detection:")
+    print("=" * 40)
     
     # Check PyTorch version
     print(f"PyTorch Version: {torch.__version__}")
@@ -78,6 +152,13 @@ def detect_torch_environment():
         cuda_version = torch.version.cuda
         print(f"CUDA Version: {cuda_version}")
         
+        # Get cuDNN version
+        try:
+            cudnn_version = torch.backends.cudnn.version()
+            print(f"cuDNN Version: {cudnn_version}")
+        except:
+            print("cuDNN Version: ❓ Unknown")
+        
         # Get number of GPUs
         gpu_count = torch.cuda.device_count()
         print(f"Number of GPUs: {gpu_count}")
@@ -86,21 +167,54 @@ def detect_torch_environment():
         print("\n📊 Available GPU Devices:")
         for i in range(gpu_count):
             gpu_name = torch.cuda.get_device_name(i)
-            gpu_memory = torch.cuda.get_device_properties(i).total_memory / (1024**3)  # Convert to GB
-            print(f"  GPU {i}: {gpu_name} ({gpu_memory:.1f} GB)")
+            gpu_properties = torch.cuda.get_device_properties(i)
+            gpu_memory = gpu_properties.total_memory / (1024**3)  # Convert to GB
+            compute_capability = f"{gpu_properties.major}.{gpu_properties.minor}"
+            print(f"  GPU {i}: {gpu_name}")
+            print(f"    Memory: {gpu_memory:.1f} GB")
+            print(f"    Compute Capability: {compute_capability}")
+            
+            # Check GPU memory usage
+            try:
+                torch.cuda.empty_cache()  # Clear cache first
+                allocated = torch.cuda.memory_allocated(i) / (1024**3)
+                cached = torch.cuda.memory_reserved(i) / (1024**3)
+                print(f"    Memory Allocated: {allocated:.2f} GB")
+                print(f"    Memory Cached: {cached:.2f} GB")
+            except:
+                print("    Memory Status: ❓ Unknown")
             
         # Get current device
         current_device = torch.cuda.current_device()
         print(f"\nCurrent GPU Device: {current_device}")
         
+        # Test GPU functionality
+        print("\n🧪 GPU Functionality Test:")
+        try:
+            test_tensor = torch.randn(100, 100).cuda()
+            result = torch.mm(test_tensor, test_tensor)
+            print("GPU Matrix Multiplication Test: ✅ Passed")
+            del test_tensor, result
+            torch.cuda.empty_cache()
+        except Exception as e:
+            print(f"GPU Matrix Multiplication Test: ❌ Failed ({e})")
+        
         return True, gpu_count
     else:
         print("⚠️  CUDA not available. Will use CPU.")
+        
+        # Provide troubleshooting information
+        print("\n🔧 Troubleshooting GPU Issues:")
+        print("1. Ensure Docker was started with --gpus all flag")
+        print("2. Check if NVIDIA Container Toolkit is installed")
+        print("3. Verify CUDA-compatible PyTorch installation")
+        print("4. Run: docker run --rm --gpus all nvidia/cuda:11.8-base-ubuntu20.04 nvidia-smi")
+        
         return False, 0
 
 def select_device():
     """Allow user to select between CPU and GPU"""
-    cuda_available, gpu_count = detect_torch_environment()
+    cuda_available, gpu_count = detect_docker_gpu_environment()
     
     if not cuda_available:
         print("\n🚀 Using CPU for processing...")
@@ -197,8 +311,9 @@ def select_model_for_image_analysis() -> str:
 class PDFImageProcessor:
     """Main class for processing PDFs with SmolDocling and Hugging Face models"""
     
-    def __init__(self, model_name: str = "google/gemma-3-12b-it", device: Optional[torch.device] = None):
+    def __init__(self, model_name: str = "google/gemma-3-12b-it", pdf_model: str = "smoldocling", device: Optional[torch.device] = None):
         self.model_name = model_name
+        self.pdf_model = pdf_model
         
         # Use provided device or detect automatically
         if device is None:
@@ -250,6 +365,84 @@ class PDFImageProcessor:
             logger.error(f"❌ Failed to load Hugging Face model: {e}")
             print(f"❌ Failed to load model: {e}")
             return False
+
+    def convert_pdf_to_json(self, pdf_path: str, output_dir: str) -> Optional[str]:
+        """Convert PDF to JSON using configured method"""
+        if self.pdf_model == "smoldocling":
+            return self.convert_pdf_with_smoldocling(pdf_path, output_dir)
+        else:
+            return self.convert_pdf_with_custom_model(pdf_path, output_dir)
+    
+    def convert_pdf_with_custom_model(self, pdf_path: str, output_dir: str) -> Optional[str]:
+        """Convert PDF using custom Hugging Face model"""
+        try:
+            pdf_path = Path(pdf_path)
+            if not pdf_path.exists():
+                logger.error(f"❌ PDF file not found: {pdf_path}")
+                return None
+                
+            output_dir = Path(output_dir)
+            output_dir.mkdir(parents=True, exist_ok=True)
+            
+            logger.info(f"🚀 Converting PDF with custom model: {self.pdf_model}")
+            print(f"📄 Converting PDF: {pdf_path.name} using {self.pdf_model}")
+            
+            # Load custom model for PDF processing
+            try:
+                logger.info(f"Loading custom model: {self.pdf_model}")
+                print(f"🔧 Loading model: {self.pdf_model}...")
+                
+                # Use Docling with custom VLM configuration
+                vlm_options = VlmPipelineOptions(
+                    vlm_model_specs=vlm_model_specs.VlmModelSpecs(
+                        model_name=self.pdf_model,
+                        inference_framework=vlm_model_specs.VlmInferenceFramework.TRANSFORMERS
+                    )
+                )
+                
+                converter = DocumentConverter(
+                    format_options={
+                        InputFormat.PDF: PdfFormatOption(
+                            pipeline_cls=VlmPipeline,
+                            pipeline_options=vlm_options
+                        ),
+                    }
+                )
+                
+                logger.info(f"Using custom model: {self.pdf_model}")
+                print(f"🔧 Using custom model: {self.pdf_model}")
+                
+            except Exception as config_error:
+                logger.error(f"❌ Custom model configuration failed: {config_error}")
+                print(f"❌ Failed to load custom model: {config_error}")
+                return None
+            
+            # Convert PDF
+            logger.info("Starting PDF conversion...")
+            print("⏳ Starting conversion...")
+            
+            conversion_result = converter.convert(pdf_path)
+            document = conversion_result.document
+            
+            # Generate output file name
+            output_name = pdf_path.stem + "_custom_model.json"
+            output_path = output_dir / output_name
+            
+            # Export to JSON
+            logger.info(f"💾 Saving converted JSON: {output_path}")
+            print(f"💾 Saving: {output_path}")
+            
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write(document.export_to_json())
+            
+            logger.info(f"✅ PDF conversion completed: {output_path}")
+            print(f"✅ Conversion completed: {output_path}")
+            return str(output_path)
+            
+        except Exception as e:
+            logger.error(f"❌ Custom PDF conversion failed: {e}")
+            print(f"❌ Custom conversion failed: {e}")
+            return None
 
     def convert_pdf_with_smoldocling(self, pdf_path: str, output_dir: str) -> Optional[str]:
         """Convert PDF using SmolDocling VLM pipeline"""
@@ -809,7 +1002,7 @@ Focus on quantitative accuracy and complete data extraction."""
             return "Describe this chart in detail, including all visible elements, data patterns, trends, and key insights. Extract all numerical values and relationships."
 
     def process_images_from_json(self, json_path: str, enable_web_search: bool = True, enable_chart_extraction: bool = True, enable_chartgemma: bool = True) -> List[Dict]:
-        """Process all images from JSON file (adapted from notebook)"""
+        """Process all images from JSON file (adapted from notebook) with progress tracking"""
         try:
             with open(json_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
@@ -819,6 +1012,8 @@ Focus on quantitative accuracy and complete data extraction."""
                 return []
             
             original_count = len(data['pictures'])
+            print(f"\n🖼️  Stage 2: Processing {original_count} images...")
+            print("=" * 50)
             logger.info(f"Found {original_count} pictures to analyze...")
             
             analysis_results = []
@@ -826,6 +1021,9 @@ Focus on quantitative accuracy and complete data extraction."""
             removed_count = 0
             
             for i, pic_data in enumerate(data['pictures']):
+                # Progress display
+                progress_percentage = int((i / original_count) * 100)
+                print(f"\r📊 Progress: [{i+1}/{original_count}] ({progress_percentage}%) - Processing image {i+1}...", end='', flush=True)
                 logger.info(f"Processing picture {i+1}/{original_count}...")
                 
                 try:
@@ -957,6 +1155,14 @@ Focus on quantitative accuracy and complete data extraction."""
                 except Exception as e:
                     logger.error(f"Error processing picture #{i+1}: {e}")
                     continue
+            
+            # Final progress display
+            print(f"\r📊 Progress: [{original_count}/{original_count}] (100%) - ✅ Completed!")
+            print(f"\n✅ Image processing complete:")
+            print(f"   📊 Original pictures: {original_count}")
+            print(f"   ✅ Processed pictures: {processed_count}")
+            print(f"   ❌ Removed pictures: {removed_count}")
+            print("=" * 50)
             
             logger.info(f"✅ Image processing complete:")
             logger.info(f"   Original pictures: {original_count}")
@@ -1190,23 +1396,111 @@ Focus on quantitative accuracy and complete data extraction."""
             logger.error(f"❌ Failed to create NLP-ready JSON: {e}")
             return ""
 
+def get_user_input_with_default(prompt: str, default: str) -> str:
+    """Get user input with default value"""
+    user_input = input(f"{prompt} (default: {default}): ").strip()
+    return user_input if user_input else default
+
 def main():
-    """Main function for command-line processing"""
+    """Main function for command-line processing with enhanced interactivity"""
     parser = argparse.ArgumentParser(description='PDF Image Analyzer - Docker Deployment')
-    parser.add_argument('pdf_path', help='Path to PDF file to process')
+    parser.add_argument('pdf_path', nargs='?', help='Path to PDF file to process')
     parser.add_argument('--output-dir', default='./output', help='Output directory (default: ./output)')
-    parser.add_argument('--model', default='google/gemma-3-12b-it', help='Hugging Face model name')
+    parser.add_argument('--model', help='Hugging Face model name (will prompt if not specified)')
+    parser.add_argument('--pdf-model', help='PDF to JSON conversion model (will prompt if not specified)')
     parser.add_argument('--no-web-search', action='store_true', help='Disable web search for conceptual images')
     parser.add_argument('--no-chart-extraction', action='store_true', help='Disable chart data extraction for data visualization images')
     parser.add_argument('--no-chartgemma', action='store_true', help='Disable ChartGemma analysis for data visualization images')
     parser.add_argument('--keep-images', action='store_true', help='Keep images in final output')
     parser.add_argument('--device', choices=['auto', 'cpu', 'gpu'], default='auto', 
                        help='Device selection (auto: detect and ask, cpu: force CPU, gpu: force GPU)')
+    parser.add_argument('--batch', action='store_true', help='Non-interactive batch mode')
+    parser.add_argument('--test-gpu', action='store_true', help='Simple GPU test in Docker and exit')
     
     args = parser.parse_args()
     
-    print("🚀 PDF Image Analyzer - Docker Deployment")
-    print("=" * 50)
+    print("🚀 PDF Image Analyzer - Docker Deployment v1.3.0")
+    print("=" * 60)
+    
+    # Handle GPU test mode
+    if args.test_gpu:
+        print("🧪 Docker GPU Testing Mode")
+        print("=" * 40)
+        gpu_working = test_docker_gpu_simple()
+        
+        if gpu_working:
+            print(f"\n✅ GPU Test Result: GPU is working in Docker!")
+            print("🎯 Your Docker container can use GPU acceleration")
+            sys.exit(0)
+        else:
+            print(f"\n❌ GPU Test Result: GPU not working in Docker")
+            print("🔧 Possible solutions:")
+            print("   1. Run Docker with: --gpus all flag")
+            print("   2. Check NVIDIA Container Toolkit installation")
+            print("   3. Verify host GPU drivers")
+            print("   4. Try: docker run --gpus all --rm image-name python main.py --test-gpu")
+            sys.exit(1)
+    
+    # Interactive mode for missing arguments
+    if not args.batch:
+        # Get PDF file path if not provided
+        if not args.pdf_path:
+            args.pdf_path = input("📄 Enter PDF file path: ").strip()
+            if not args.pdf_path:
+                print("❌ PDF file path is required!")
+                sys.exit(1)
+        
+        # Get Hugging Face model for Stage 2 processing
+        if not args.model:
+            print("\n🤖 Stage 2 Processing Model Configuration:")
+            args.model = get_user_input_with_default(
+                "Enter Hugging Face model address for Stage 2 processing", 
+                "google/gemma-3-12b-it"
+            )
+        
+        # Get PDF to JSON conversion method
+        if not args.pdf_model:
+            print("\n📄 PDF to JSON Conversion Configuration:")
+            print("1. SmolDocling (recommended) - Official Docling VLM model")
+            print("2. Custom Hugging Face model")
+            
+            choice = input("Select conversion method (1 or 2, default: 1): ").strip()
+            
+            if choice == "2":
+                args.pdf_model = get_user_input_with_default(
+                    "Enter Hugging Face model address for PDF conversion",
+                    "google/gemma-3-12b-it"
+                )
+            else:
+                args.pdf_model = "smoldocling"  # Use SmolDocling
+    else:
+        # Batch mode defaults
+        if not args.pdf_path:
+            print("❌ PDF file path is required in batch mode!")
+            sys.exit(1)
+        args.model = args.model or "google/gemma-3-12b-it"
+        args.pdf_model = args.pdf_model or "smoldocling"
+    
+    print(f"\n📋 Configuration:")
+    print(f"   📄 PDF File: {args.pdf_path}")
+    print(f"   📁 Output Directory: {args.output_dir}")
+    print(f"   🤖 Stage 2 Model: {args.model}")
+    print(f"   📄 PDF Conversion: {args.pdf_model}")
+    print("=" * 60)
+    
+    # Quick GPU status check (non-blocking)
+    if not args.test_gpu:
+        print("\n🔍 Quick GPU Status:")
+        try:
+            import torch
+            if torch.cuda.is_available():
+                gpu_count = torch.cuda.device_count()
+                gpu_name = torch.cuda.get_device_name(0)
+                print(f"✅ {gpu_count} GPU(s) detected: {gpu_name}")
+            else:
+                print("❌ No GPU detected (will use CPU)")
+        except:
+            print("❓ Could not check GPU status")
     
     # Handle device selection
     if args.device == 'auto':
@@ -1223,9 +1517,9 @@ def main():
             print("⚠️  GPU requested but CUDA not available. Falling back to CPU...")
             selected_device = torch.device("cpu")
     
-    # Initialize processor with selected device
+    # Initialize processor with selected device and PDF model
     print(f"\n🤖 Initializing processor with device: {selected_device}")
-    processor = PDFImageProcessor(model_name=args.model, device=selected_device)
+    processor = PDFImageProcessor(model_name=args.model, pdf_model=args.pdf_model, device=selected_device)
     
     # Initialize models (commented out HF model for now due to complexity)
     # if not processor.initialize_hf_model():
@@ -1233,8 +1527,8 @@ def main():
     #     return
     
     # Convert PDF
-    print("\n=== Starting PDF Processing ===")
-    json_path = processor.convert_pdf_with_smoldocling(args.pdf_path, args.output_dir)
+    print("\n=== Stage 1: PDF to JSON Conversion ===")
+    json_path = processor.convert_pdf_to_json(args.pdf_path, args.output_dir)
     if not json_path:
         logger.error("PDF conversion failed")
         print("❌ PDF conversion failed")
@@ -1273,8 +1567,8 @@ def main():
         print("⚠️  No images were successfully analyzed")
         return
     
-    # Create enhanced JSON
-    print("\n=== Creating Enhanced JSON ===")
+    # Stage 3: Create Enhanced JSON
+    print("\n=== Stage 3: Creating Enhanced JSON ===")
     enhanced_json_path = processor.create_enhanced_json(
         json_path, 
         analysis_results, 
@@ -1286,23 +1580,27 @@ def main():
         print("❌ Failed to create enhanced JSON")
         return
     
-    # Create NLP-ready version if requested
-    if not args.keep_images:
-        print("\n=== Creating NLP-Ready JSON ===")
-        nlp_ready_path = processor.create_nlp_ready_json(
-            enhanced_json_path, 
-            args.output_dir
-        )
-        
-        if nlp_ready_path:
-            logger.info(f"🎉 Processing complete! NLP-ready file: {nlp_ready_path}")
-            print(f"🎉 Processing complete! NLP-ready file: {nlp_ready_path}")
-        else:
-            logger.error("Failed to create NLP-ready JSON")
-            print("❌ Failed to create NLP-ready JSON")
+    # Stage 4: Create NLP-ready version (always created)
+    print("\n=== Stage 4: Creating NLP-Ready JSON ===")
+    nlp_ready_path = processor.create_nlp_ready_json(
+        enhanced_json_path, 
+        args.output_dir
+    )
+    
+    # Final output summary
+    print("\n" + "=" * 60)
+    print("🎉 PDF Image Analyzer Processing Complete!")
+    print("=" * 60)
+    
+    if enhanced_json_path and nlp_ready_path:
+        print("📄 Output Files:")
+        print(f"   ✅ Enhanced JSON: {Path(enhanced_json_path).name}")
+        print(f"   ✅ NLP-Ready JSON: {Path(nlp_ready_path).name}")
+        print(f"\n📁 Output Directory: {args.output_dir}")
+        logger.info(f"🎉 Processing complete! Files created: {enhanced_json_path}, {nlp_ready_path}")
     else:
-        logger.info(f"🎉 Processing complete! Enhanced file: {enhanced_json_path}")
-        print(f"🎉 Processing complete! Enhanced file: {enhanced_json_path}")
+        print("❌ Some output files failed to generate")
+        logger.error("Failed to create all required JSON files")
 
 if __name__ == "__main__":
     main()

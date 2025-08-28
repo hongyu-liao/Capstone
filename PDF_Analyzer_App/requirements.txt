@@ -1,52 +1,26 @@
 # Core web framework
 streamlit>=1.28.0
 
-# PDF processing with Docling
+# PDF processing
 docling>=2.0.0
 
 # HTTP requests for API calls
 requests>=2.31.0
 
-# Data manipulation and export
+# Data manipulation
 pandas>=2.0.0
-numpy>=1.24.0
-openpyxl>=3.1.0
 
 # Image processing
 Pillow>=9.5.0
 
-# Chart data extraction with DePlot (optional but recommended for data visualization)
-transformers>=4.30.0
-torch>=2.0.0
+# Optional: Chart analysis (install only if needed)
+# transformers>=4.30.0
+# torch>=2.0.0
 
-# Web searching (updated package name)
-ddgs>=0.9.0
+# Optional: Web search (install only if needed)
+# ddgs>=0.9.0
+# google-genai>=0.2.0
 
-# Google GenAI SDK for Gemini with web search
-google-genai>=0.2.0
-
-# JSON handling and validation
-jsonschema>=4.17.0
-
-# Logging and utilities
-python-dateutil>=2.8.0
-pathlib-mate>=1.0.0
-
-# Type hints for better development
-typing-extensions>=4.5.0
-
-# Progress bars and UI enhancements
-tqdm>=4.65.0
-rich>=13.0.0
-
-# Development dependencies (optional)
-# pytest>=7.0.0
-# black>=23.0.0
-# flake8>=6.0.0
-
-# Additional dependencies for enhanced features
-# For Excel export functionality
-xlsxwriter>=3.0.0
-
-# For concurrent processing
-# concurrent.futures (built-in Python 3.2+)
+# API clients for remote providers
+openai>=1.0.0
+anthropic>=0.25.0

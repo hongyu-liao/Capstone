@@ -168,6 +168,23 @@ def configure_sidebar():
         key="enable_chartgemma"
     )
     
+    # API usage option for PDF conversion
+    use_api_for_pdf = st.sidebar.checkbox(
+        "Use API for PDF Conversion",
+        value=False,
+        help="Use remote API for PDF→JSON conversion instead of local processing (only for non-LM Studio providers)",
+        key="use_api_for_pdf"
+    )
+    
+    # Show API status
+    if st.session_state.get('ai_provider') != 'LM Studio (Local)':
+        if use_api_for_pdf:
+            st.sidebar.info("🌐 **Stage 1**: Remote API\n🌐 **Stage 2**: Remote API")
+        else:
+            st.sidebar.info("🏠 **Stage 1**: Local Docling\n🌐 **Stage 2**: Remote API")
+    else:
+        st.sidebar.info("🏠 **Stage 1**: Local Docling\n🏠 **Stage 2**: Local LM Studio")
+    
     generate_nlp_ready = st.sidebar.checkbox(
         "Generate NLP-Ready JSON",
         value=False,
@@ -737,8 +754,9 @@ def process_single_file_batch(file_type, file_path, file_name, output_dir, confi
             status_text.text("Step 1/4: Converting PDF to JSON...")
             progress_bar.progress(25)
             
-            # Use original filename for JSON output (without _step1_docling suffix)
-            json_result = pdf_processor.convert_pdf_to_json(file_path, output_dir, original_name)
+            # Use original filename for JSON output (with API option)
+            use_api = config.get('use_api_for_pdf', False)
+            json_result = pdf_processor.convert_pdf_to_json(file_path, output_dir, original_name, use_api=use_api)
             
             if not json_result:
                 return None
@@ -1886,6 +1904,7 @@ def get_processing_config():
         'enable_web_search': st.session_state.get('enable_web_search', True),
         'enable_chart_extraction': st.session_state.get('enable_chart_extraction', True),
         'enable_chartgemma': st.session_state.get('enable_chartgemma', True),
+        'use_api_for_pdf': st.session_state.get('use_api_for_pdf', False),
         'generate_nlp_ready': st.session_state.get('generate_nlp_ready', False),
         'max_tokens': st.session_state.get('max_tokens', 700)
     }

@@ -30,7 +30,18 @@ class APIManager:
         self.provider = config.get('ai_provider', 'LM Studio (Local)')
         self.model_name = config.get('model_name')
         self.api_key = config.get('api_key')
-        self.base_url = config.get('lm_studio_url')
+        
+        # Set base URL based on provider
+        if self.provider == "LM Studio (Local)":
+            self.base_url = config.get('lm_studio_url')
+        elif self.provider == "OpenAI (ChatGPT)":
+            self.base_url = "https://api.openai.com/v1/chat/completions"
+        elif self.provider == "Google (Gemini)":
+            self.base_url = "https://generativelanguage.googleapis.com/v1beta/models"
+        elif self.provider == "Anthropic (Claude)":
+            self.base_url = "https://api.anthropic.com/v1/messages"
+        else:
+            self.base_url = config.get('lm_studio_url')
         
         # Initialize Google GenAI client if available
         self.genai_client = None
@@ -311,7 +322,7 @@ Additionally, if this image shows concepts, methodologies, or topics that would 
                 ]
             }
             
-            response = requests.post(self.base_url, headers=headers, json=payload, timeout=300)
+            response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload, timeout=300)
             response.raise_for_status()
             
             result = response.json()
@@ -470,7 +481,7 @@ Additionally, if this image shows concepts, methodologies, or topics that would 
             "temperature": 0.1
         }
         
-        response = requests.post(self.base_url, headers=headers, json=payload, timeout=300)
+        response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload, timeout=300)
         response.raise_for_status()
         
         return response.json()["choices"][0]["message"]["content"]
@@ -489,7 +500,7 @@ Additionally, if this image shows concepts, methodologies, or topics that would 
             "temperature": 0.3
         }
         
-        response = requests.post(self.base_url, headers=headers, json=payload, timeout=120)
+        response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload, timeout=120)
         response.raise_for_status()
         
         return response.json()["choices"][0]["message"]["content"]
@@ -650,7 +661,7 @@ Additionally, if this image shows concepts, methodologies, or topics that would 
             ]
         }
         
-        response = requests.post(self.base_url, headers=headers, json=payload, timeout=300)
+        response = requests.post("https://api.anthropic.com/v1/messages", headers=headers, json=payload, timeout=300)
         response.raise_for_status()
         
         return response.json()["content"][0]["text"]
@@ -675,7 +686,7 @@ Additionally, if this image shows concepts, methodologies, or topics that would 
             ]
         }
         
-        response = requests.post(self.base_url, headers=headers, json=payload, timeout=120)
+        response = requests.post("https://api.anthropic.com/v1/messages", headers=headers, json=payload, timeout=120)
         response.raise_for_status()
         
         return response.json()["content"][0]["text"]
